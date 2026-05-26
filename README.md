@@ -1,4 +1,4 @@
-# LLM-KG
+# LLM-KG (knowledge graph)
 
 LLM-KG is a persistent reasoning layer for AI agents. It turns raw documents into an inspectable LLM Wiki, then compiles that wiki into a lightweight knowledge graph made of claims, evidence, entities, and typed relations.
 
