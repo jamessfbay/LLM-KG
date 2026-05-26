@@ -1,0 +1,7 @@
+[llm]
+# "mock" runs fully offline. Use "openai" with OPENAI_API_KEY for model-backed runs.
+provider = "mock"
+openai_model = "gpt-4.1-mini"
+
+[query]
+top_k = 5

@@ -110,9 +110,34 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 ## Environment
 
 - `LLM_KG_WORKSPACE`: workspace path; defaults to current directory.
-- `LLM_KG_PROVIDER`: `mock` or `openai`; defaults to `openai` only when `OPENAI_API_KEY` is present.
+- `LLM_KG_CONFIG`: optional path to a TOML config file; defaults to `llm_kg.toml` in the workspace.
+- `LLM_KG_PROVIDER`: `mock` or `openai`; overrides config and defaults to `openai` only when `OPENAI_API_KEY` is present.
 - `LLM_KG_OPENAI_MODEL`: OpenAI model; defaults to `gpt-4.1-mini`.
 - `LLM_KG_TOP_K`: default query hit count.
+
+## Config File
+
+The project config file is TOML. Copy `llm_kg.toml.example` to `llm_kg.toml` when you want checked-in defaults for local runs:
+
+```toml
+[llm]
+# "mock" runs fully offline. Use "openai" with OPENAI_API_KEY for model-backed runs.
+provider = "mock"
+openai_model = "gpt-4.1-mini"
+
+[query]
+top_k = 5
+```
+
+Resolution order:
+
+1. Explicit CLI or API workspace argument.
+2. `LLM_KG_WORKSPACE`.
+3. Current directory.
+4. `<workspace>/llm_kg.toml`, unless `LLM_KG_CONFIG` points elsewhere.
+5. Environment variables override matching TOML values.
+
+Do not put secrets in `llm_kg.toml`. Keep `OPENAI_API_KEY` in the environment.
 
 ## Storage
 
