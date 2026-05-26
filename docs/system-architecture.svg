@@ -1,0 +1,118 @@
+<svg width="1180" height="760" viewBox="0 0 1180 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">LLM-KG system architecture</title>
+  <desc id="desc">A layered architecture diagram showing ingest-time compilation, persistent storage, query-time RAG, and maintenance workflows.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .subtitle { fill: #475569; font: 400 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #0f172a; font: 700 16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #334155; font: 400 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tiny { fill: #475569; font: 400 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .group-title { fill: #1e293b; font: 700 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .04em; }
+      .box { fill: white; stroke: #cbd5e1; stroke-width: 1.4; rx: 8; }
+      .source { fill: #fff7ed; stroke: #fdba74; }
+      .compile { fill: #eff6ff; stroke: #93c5fd; }
+      .store { fill: #f0fdf4; stroke: #86efac; }
+      .rag { fill: #f5f3ff; stroke: #c4b5fd; }
+      .health { fill: #fef2f2; stroke: #fca5a5; }
+      .line { stroke: #334155; stroke-width: 1.6; marker-end: url(#arrow); }
+      .dash { stroke: #64748b; stroke-width: 1.4; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1180" height="760"/>
+  <text class="title" x="44" y="54">LLM-KG System Architecture</text>
+  <text class="subtitle" x="44" y="80">Ingest-time compilation turns raw sources into durable wiki and graph memory; query-time RAG retrieves compiled knowledge with evidence.</text>
+
+  <rect x="40" y="120" width="250" height="500" rx="12" fill="#fff7ed" stroke="#fed7aa"/>
+  <text class="group-title" x="62" y="150">RAW SOURCES</text>
+
+  <rect class="box source" x="70" y="185" width="190" height="86"/>
+  <text class="label" x="92" y="218">Source Files</text>
+  <text class="small" x="92" y="243">TXT / MD / DOCX / PDF</text>
+
+  <rect class="box source" x="70" y="310" width="190" height="86"/>
+  <text class="label" x="92" y="343">Source Readers</text>
+  <text class="small" x="92" y="368">Normalize into Document</text>
+
+  <rect class="box source" x="70" y="435" width="190" height="86"/>
+  <text class="label" x="92" y="468">Document Model</text>
+  <text class="small" x="92" y="493">id, hash, content, type</text>
+
+  <rect x="335" y="120" width="280" height="500" rx="12" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text class="group-title" x="357" y="150">INGEST-TIME COMPILATION</text>
+
+  <rect class="box compile" x="375" y="185" width="200" height="86"/>
+  <text class="label" x="397" y="218">LLM Client</text>
+  <text class="small" x="397" y="243">Mock / OpenAI</text>
+
+  <rect class="box compile" x="375" y="310" width="200" height="86"/>
+  <text class="label" x="397" y="343">Wiki Generation</text>
+  <text class="small" x="397" y="368">Source and entity pages</text>
+
+  <rect class="box compile" x="375" y="435" width="200" height="112"/>
+  <text class="label" x="397" y="468">Knowledge Extraction</text>
+  <text class="small" x="397" y="493">Claims + evidence</text>
+  <text class="small" x="397" y="515">Entities + relations</text>
+
+  <rect x="660" y="120" width="210" height="500" rx="12" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text class="group-title" x="682" y="150">PERSISTENT STORAGE</text>
+
+  <rect class="box store" x="690" y="235" width="150" height="86"/>
+  <text class="label" x="712" y="268">Wiki Store</text>
+  <text class="small" x="712" y="293">wiki/*.md</text>
+
+  <rect class="box store" x="690" y="395" width="150" height="112"/>
+  <text class="label" x="712" y="428">Graph Store</text>
+  <text class="small" x="712" y="453">claims.jsonl</text>
+  <text class="small" x="712" y="475">evidence/nodes/edges</text>
+
+  <rect x="915" y="120" width="225" height="500" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+  <text class="group-title" x="937" y="150">QUERY-TIME RAG</text>
+
+  <rect class="box rag" x="945" y="185" width="165" height="86"/>
+  <text class="label" x="967" y="218">User / Agent</text>
+  <text class="small" x="967" y="243">CLI or API call</text>
+
+  <rect class="box rag" x="945" y="310" width="165" height="86"/>
+  <text class="label" x="967" y="343">Local Search</text>
+  <text class="small" x="967" y="368">Wiki + claims + evidence</text>
+
+  <rect class="box rag" x="945" y="435" width="165" height="86"/>
+  <text class="label" x="967" y="468">Context Assembly</text>
+  <text class="small" x="967" y="493">Evidence-backed hits</text>
+
+  <rect class="box rag" x="945" y="560" width="165" height="86"/>
+  <text class="label" x="967" y="593">Answer</text>
+  <text class="small" x="967" y="618">Cited response</text>
+
+  <rect x="335" y="650" width="535" height="64" rx="12" fill="#fef2f2" stroke="#fecaca"/>
+  <text class="group-title" x="357" y="678">MAINTENANCE</text>
+  <text class="small" x="357" y="701">Lint detects broken wikilinks, missing evidence, duplicate entities, and invalid graph references.</text>
+
+  <path class="line" d="M165 271 V305"/>
+  <path class="line" d="M165 396 V430"/>
+  <path class="line" d="M260 478 H369"/>
+  <path class="line" d="M475 271 V305"/>
+  <path class="line" d="M475 396 V430"/>
+  <path class="line" d="M575 350 H684"/>
+  <path class="line" d="M575 490 H684"/>
+  <path class="line" d="M840 278 H939"/>
+  <path class="line" d="M840 451 H939"/>
+  <path class="line" d="M1027 271 V305"/>
+  <path class="line" d="M1027 396 V430"/>
+  <path class="line" d="M1027 521 V555"/>
+  <path class="dash" d="M765 507 V642"/>
+  <path class="dash" d="M765 321 V642"/>
+  <path class="dash" d="M603 650 V553"/>
+
+  <text class="tiny" x="306" y="466">immutable input</text>
+  <text class="tiny" x="610" y="337">Markdown pages</text>
+  <text class="tiny" x="610" y="477">JSONL records</text>
+  <text class="tiny" x="875" y="265">retrieval</text>
+  <text class="tiny" x="875" y="438">evidence</text>
+</svg>

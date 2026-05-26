@@ -13,6 +13,10 @@ TXT/MD/DOCX/PDF source
   -> query, lint, and reasoning workflows
 ```
 
+## System Architecture
+
+![LLM-KG system architecture](docs/system-architecture.svg)
+
 ## Problem
 
 Traditional RAG is query-time synthesis: every question searches raw chunks and asks an LLM to assemble an answer from scratch. That works for quick lookup, but it has weak memory. Important facts, contradictions, entity relationships, and reasoning paths are repeatedly rediscovered instead of becoming durable product knowledge.
