@@ -25,6 +25,24 @@ LLM Wiki improves this by compiling new sources into maintained Markdown pages a
 
 LLM-KG adds the next layer: every useful source can become structured claims, evidence quotes, entities, and typed relations. This makes the knowledge base both human-readable and machine-reasonable.
 
+## How LLM-KG Differs From GraphRAG
+
+LLM-KG is not another GraphRAG clone. GraphRAG builds graph indexes to improve retrieval. LLM-KG builds an evidence-governed knowledge system for persistent reasoning, with a built-in Wiki compilation layer and a handoff contract to LLM-KEE for safe knowledge evolution.
+
+```text
+GraphRAG improves retrieval.
+LLM-KG governs reasoning.
+LLM-KEE evolves knowledge.
+```
+
+In this repository, GraphRAG-like retrieval is one layer: chunking, entity/relation/claim extraction, embeddings, and basic/local search. The differentiating layer is evidence governance:
+
+- No evidence, no claim.
+- No source trace, no relation.
+- No unreviewed correction directly mutates governed knowledge.
+- Corrections, conflicts, and outdated claims become proposal drafts for LLM-KEE.
+- Approved update plans can be applied through a narrow, auditable adapter boundary.
+
 ## Why Build This
 
 AI agents need durable context. They should not re-read the same PDFs, staff reports, policies, meeting notes, or project files every time a user asks a related question. LLM-KG gives agents a local memory artifact that can compound over time:
@@ -35,8 +53,9 @@ AI agents need durable context. They should not re-read the same PDFs, staff rep
 - Evidence keeps answers grounded in source material.
 - Entities and relations make dependency paths computable.
 - Lint checks keep the knowledge base healthy as it grows.
+- Audit events and review states make knowledge changes governable.
 
-The MVP intentionally starts with Markdown and JSONL instead of a graph database. This keeps the system easy to inspect, Git-friendly, and useful before adding SQLite, Neo4j, vector search, or a UI.
+The system keeps Markdown and JSONL exports for inspection, while PostgreSQL+pgvector provides the primary retrieval and structured storage backend when configured.
 
 ## Product Examples
 
@@ -86,6 +105,8 @@ This repository implements the first local version:
 - Optional OpenAI provider for wiki generation, extraction, and answers.
 - Deterministic `mock` embedding provider and optional OpenAI embeddings.
 - PostgreSQL+pgvector storage for text units, graph records, and embeddings.
+- Evidence governance fields for claims, evidence, entities, relations, and wiki pages.
+- Verification, trace, proposal export, and approved apply-plan commands.
 - Markdown wiki output in `wiki/`.
 - JSONL graph output in `graph_store/`.
 - CLI commands for ingest, query, lint, stats, and database migration/status.
@@ -129,6 +150,11 @@ When `LLM_KG_DATABASE_URL` or `[database].url` is configured, ingest writes to P
 python -m llm_kg ingest raw_sources/markdown/example.md
 python -m llm_kg query "What policies affect Housing Project Alpha?" --mode local
 python -m llm_kg query "What evidence mentions SB 330?" --mode basic
+python -m llm_kg verify claim claim_123
+python -m llm_kg trace claim claim_123
+python -m llm_kg propose claim claim_123 --change change.json
+python -m llm_kg export-proposal prop_123 --format llm-kee
+python -m llm_kg apply-plan approved-plan.json
 python -m llm_kg lint
 python -m llm_kg stats
 ```
@@ -191,16 +217,18 @@ Do not put secrets in `llm_kg.toml`. Keep `OPENAI_API_KEY` in the environment.
 
 - Raw sources are not modified.
 - Wiki pages are written to `wiki/`.
-- Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, and `evidence.jsonl`.
-- When configured, PostgreSQL stores `documents`, `text_units`, `wiki_pages`, `claims`, `evidence`, `entities`, `relationships`, and `embeddings`.
+- Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, `evidence.jsonl`, `proposals.jsonl`, and `audit_events.jsonl`.
+- When configured, PostgreSQL stores `documents`, `text_units`, `wiki_pages`, `claims`, `evidence`, `entities`, `relationships`, `embeddings`, `update_proposals`, and `audit_events`.
 
 ## Python API
 
 ```python
 from pathlib import Path
-from llm_kg import ingest_source, query_knowledge, lint_workspace
+from llm_kg import ingest_source, query_knowledge, lint_workspace, verify_claim, trace_object
 
 ingest_source(Path("raw_sources/markdown/example.md"), workspace=Path("."))
 result = query_knowledge("What affects the project?", workspace=Path("."))
+verification = verify_claim("claim_123", workspace=Path("."))
+trace = trace_object("claim", "claim_123", workspace=Path("."))
 issues = lint_workspace(Path("."))
 ```

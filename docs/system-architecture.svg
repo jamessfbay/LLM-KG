@@ -26,7 +26,7 @@
 
   <rect class="bg" width="1180" height="760"/>
   <text class="title" x="44" y="54">LLM-KG System Architecture</text>
-  <text class="subtitle" x="44" y="80">Ingest-time compilation turns raw sources into wiki, graph records, and pgvector embeddings; query-time RAG supports basic and local modes.</text>
+  <text class="subtitle" x="44" y="80">GraphRAG-like retrieval is one layer; LLM-KG differentiates through evidence governance, auditability, and LLM-KEE handoff.</text>
 
   <rect x="40" y="120" width="250" height="500" rx="12" fill="#fff7ed" stroke="#fed7aa"/>
   <text class="group-title" x="62" y="150">RAW SOURCES</text>
@@ -72,23 +72,23 @@
   <text class="small" x="712" y="475">claims/entities/relations</text>
 
   <rect x="915" y="120" width="225" height="500" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
-  <text class="group-title" x="937" y="150">QUERY-TIME RAG</text>
+  <text class="group-title" x="937" y="150">REASONING + GOVERNANCE</text>
 
   <rect class="box rag" x="945" y="185" width="165" height="86"/>
   <text class="label" x="967" y="218">User / Agent</text>
   <text class="small" x="967" y="243">CLI or API call</text>
 
   <rect class="box rag" x="945" y="310" width="165" height="86"/>
-  <text class="label" x="967" y="343">Search Modes</text>
+  <text class="label" x="967" y="343">Retrieval Layer</text>
   <text class="small" x="967" y="368">basic vector + local KG</text>
 
   <rect class="box rag" x="945" y="435" width="165" height="86"/>
-  <text class="label" x="967" y="468">Context Assembly</text>
-  <text class="small" x="967" y="493">Evidence-backed hits</text>
+  <text class="label" x="967" y="468">Verify + Trace</text>
+  <text class="small" x="967" y="493">Evidence governance</text>
 
   <rect class="box rag" x="945" y="560" width="165" height="86"/>
-  <text class="label" x="967" y="593">Answer</text>
-  <text class="small" x="967" y="618">Cited response</text>
+  <text class="label" x="967" y="593">Proposal Handoff</text>
+  <text class="small" x="967" y="618">LLM-KEE gate</text>
 
   <rect x="335" y="650" width="535" height="64" rx="12" fill="#fef2f2" stroke="#fecaca"/>
   <text class="group-title" x="357" y="678">MAINTENANCE</text>

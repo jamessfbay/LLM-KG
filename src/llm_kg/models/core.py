@@ -2,13 +2,27 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+ReviewState = Literal["auto_accepted", "pending_review", "approved", "rejected", "superseded"]
+
+
+class GovernanceFields(BaseModel):
+    review_state: ReviewState = "auto_accepted"
+    version: int = 1
+    created_by: str = "system"
+    updated_by: str = "system"
+    updated_at: datetime = Field(default_factory=utc_now)
+    supersedes_id: str | None = None
+    superseded_by_id: str | None = None
+    governance_notes: str | None = None
 
 
 class Document(BaseModel):
@@ -23,7 +37,7 @@ class Document(BaseModel):
     hash: str
 
 
-class WikiPage(BaseModel):
+class WikiPage(GovernanceFields):
     id: str
     title: str
     page_type: Literal["source", "entity", "concept", "synthesis", "comparison"]
@@ -46,7 +60,7 @@ class TextUnit(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
 
 
-class Evidence(BaseModel):
+class Evidence(GovernanceFields):
     id: str
     source_id: str
     quote: str
@@ -56,7 +70,7 @@ class Evidence(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-class Claim(BaseModel):
+class Claim(GovernanceFields):
     id: str
     text: str
     source_ids: list[str] = Field(default_factory=list)
@@ -69,7 +83,7 @@ class Claim(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-class Entity(BaseModel):
+class Entity(GovernanceFields):
     id: str
     name: str
     entity_type: str
@@ -78,7 +92,7 @@ class Entity(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
 
 
-class Relation(BaseModel):
+class Relation(GovernanceFields):
     id: str
     subject_id: str
     predicate: str
@@ -99,6 +113,70 @@ class EmbeddingRecord(BaseModel):
     dimensions: int
     text: str
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class AuditEvent(BaseModel):
+    id: str
+    event_type: Literal["create", "update", "delete", "proposal", "export", "apply"]
+    target_type: str
+    target_id: str
+    actor: str = "system"
+    source: str = "llm-kg"
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class VerificationIssue(BaseModel):
+    code: str
+    message: str
+    severity: Literal["info", "warning", "error"] = "warning"
+
+
+class VerificationResult(BaseModel):
+    target_type: str
+    target_id: str
+    valid: bool
+    review_state: str | None = None
+    confidence: float | None = None
+    evidence: list[Evidence] = Field(default_factory=list)
+    issues: list[VerificationIssue] = Field(default_factory=list)
+
+
+class TraceNode(BaseModel):
+    kind: str
+    id: str
+    title: str | None = None
+    text: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TraceResult(BaseModel):
+    target_type: str
+    target_id: str
+    nodes: list[TraceNode] = Field(default_factory=list)
+    gaps: list[VerificationIssue] = Field(default_factory=list)
+
+
+class UpdateProposalDraft(BaseModel):
+    id: str
+    proposal_type: str
+    target_type: str
+    target_id: str | None = None
+    title: str
+    rationale: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    source_signal_ids: list[str] = Field(default_factory=list)
+    proposed_change: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    status: str = "draft"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ApplyResult(BaseModel):
+    status: Literal["applied", "rejected"]
+    message: str
+    audit_event_ids: list[str] = Field(default_factory=list)
 
 
 class LintIssue(BaseModel):

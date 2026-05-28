@@ -1,4 +1,6 @@
 from llm_kg.models.core import (
+    ApplyResult,
+    AuditEvent,
     Claim,
     Document,
     EmbeddingRecord,
@@ -9,11 +11,18 @@ from llm_kg.models.core import (
     QueryHit,
     QueryResult,
     Relation,
+    TraceNode,
+    TraceResult,
     TextUnit,
+    UpdateProposalDraft,
+    VerificationIssue,
+    VerificationResult,
     WikiPage,
 )
 
 __all__ = [
+    "ApplyResult",
+    "AuditEvent",
     "Claim",
     "Document",
     "EmbeddingRecord",
@@ -24,6 +33,11 @@ __all__ = [
     "QueryHit",
     "QueryResult",
     "Relation",
+    "TraceNode",
+    "TraceResult",
     "TextUnit",
+    "UpdateProposalDraft",
+    "VerificationIssue",
+    "VerificationResult",
     "WikiPage",
 ]

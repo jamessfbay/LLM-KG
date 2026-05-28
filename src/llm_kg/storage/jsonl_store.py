@@ -56,7 +56,14 @@ class JsonlStore:
 
     def counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for filename in ("nodes.jsonl", "edges.jsonl", "claims.jsonl", "evidence.jsonl"):
+        for filename in (
+            "nodes.jsonl",
+            "edges.jsonl",
+            "claims.jsonl",
+            "evidence.jsonl",
+            "proposals.jsonl",
+            "audit_events.jsonl",
+        ):
             path = self.path(filename)
             if not path.exists():
                 counts[filename] = 0
