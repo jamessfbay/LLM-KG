@@ -3,5 +3,16 @@
 provider = "mock"
 openai_model = "gpt-4.1-mini"
 
+[database]
+# Docker Compose default:
+# postgresql://llm_kg:llm_kg@localhost:54329/llm_kg
+url = ""
+
+[embedding]
+provider = "mock"
+model = "text-embedding-3-small"
+dimensions = 1536
+
 [query]
 top_k = 5
+default_mode = "local"

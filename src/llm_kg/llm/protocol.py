@@ -14,5 +14,5 @@ class LLMClient(Protocol):
     ) -> tuple[list[Claim], list[Evidence], list[Entity], list[Relation]]:
         ...
 
-    def answer_question(self, question: str, context: str) -> str:
+    def answer_question(self, question: str, context: str, mode: str = "local") -> str:
         ...

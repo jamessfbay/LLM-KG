@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from llm_kg.api import ingest_source, lint_workspace, query_knowledge
 from llm_kg.config import Settings
-from llm_kg.storage import JsonlStore, MarkdownStore
+from llm_kg.storage import JsonlStore, MarkdownStore, build_postgres_store
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -24,9 +24,16 @@ def main(argv: list[str] | None = None) -> int:
     query_parser = subparsers.add_parser("query", help="Query wiki and graph")
     query_parser.add_argument("question")
     query_parser.add_argument("--top-k", type=int, default=None)
+    query_parser.add_argument("--mode", choices=["basic", "local"], default=None)
 
     subparsers.add_parser("lint", help="Lint wiki and graph records")
     subparsers.add_parser("stats", help="Show workspace stats")
+
+    db_parser = subparsers.add_parser("db", help="Manage PostgreSQL+pgvector storage")
+    db_subparsers = db_parser.add_subparsers(dest="db_command", required=True)
+    db_subparsers.add_parser("init", help="Apply database migrations")
+    db_subparsers.add_parser("migrate", help="Apply database migrations")
+    db_subparsers.add_parser("status", help="Show database status")
 
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
@@ -43,13 +50,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "query":
         settings = Settings.from_env(workspace)
         top_k = args.top_k or settings.top_k
-        result = query_knowledge(args.question, workspace=workspace, top_k=top_k)
+        mode = args.mode or settings.query_default_mode
+        result = query_knowledge(args.question, workspace=workspace, top_k=top_k, mode=mode)
         text = [result.answer, ""]
         for hit in result.hits:
             label = f"{hit.kind}:{hit.id}"
             text.append(f"- [{label}] score={hit.score} {hit.title or ''} {hit.path or ''}".strip())
             text.append(f"  {hit.text}")
         return _print(args.json, result, "\n".join(text).strip())
+    if args.command == "db":
+        settings = Settings.from_env(workspace)
+        postgres = build_postgres_store(settings)
+        if postgres is None:
+            print("LLM_KG_DATABASE_URL or [database].url is required for db commands.")
+            return 2
+        if args.db_command in {"init", "migrate"}:
+            postgres.apply_migrations(workspace / "migrations")
+            print("Database migrations applied.")
+            return 0
+        if args.db_command == "status":
+            status = postgres.status()
+            if args.json:
+                print(json.dumps(status, indent=2))
+            else:
+                print(f"Database: {status['database']}")
+                print(f"User: {status['user']}")
+                print(f"Migrated: {status['migrated']}")
+                print(f"Documents: {status['documents']}")
+                print(f"Embeddings: {status['embeddings']}")
+            return 0
     if args.command == "lint":
         issues = lint_workspace(workspace=workspace)
         if args.json:
@@ -82,8 +111,16 @@ def _print(as_json: bool, model: BaseModel, text: str) -> int:
 
 
 def _stats(workspace: Path) -> dict[str, Any]:
-    return {
+    settings = Settings.from_env(workspace)
+    stats = {
         "workspace": str(workspace),
         "wiki_pages": len(MarkdownStore(workspace).load_pages()),
         "graph_records": JsonlStore(workspace).counts(),
     }
+    postgres = build_postgres_store(settings)
+    if postgres:
+        try:
+            stats["postgres"] = postgres.status()
+        except Exception as exc:
+            stats["postgres"] = {"error": str(exc)}
+    return stats

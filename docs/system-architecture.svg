@@ -26,7 +26,7 @@
 
   <rect class="bg" width="1180" height="760"/>
   <text class="title" x="44" y="54">LLM-KG System Architecture</text>
-  <text class="subtitle" x="44" y="80">Ingest-time compilation turns raw sources into durable wiki and graph memory; query-time RAG retrieves compiled knowledge with evidence.</text>
+  <text class="subtitle" x="44" y="80">Ingest-time compilation turns raw sources into wiki, graph records, and pgvector embeddings; query-time RAG supports basic and local modes.</text>
 
   <rect x="40" y="120" width="250" height="500" rx="12" fill="#fff7ed" stroke="#fed7aa"/>
   <text class="group-title" x="62" y="150">RAW SOURCES</text>
@@ -60,16 +60,16 @@
   <text class="small" x="397" y="515">Entities + relations</text>
 
   <rect x="660" y="120" width="210" height="500" rx="12" fill="#f0fdf4" stroke="#bbf7d0"/>
-  <text class="group-title" x="682" y="150">PERSISTENT STORAGE</text>
+  <text class="group-title" x="682" y="150">POSTGRES + PGVECTOR</text>
 
   <rect class="box store" x="690" y="235" width="150" height="86"/>
   <text class="label" x="712" y="268">Wiki Store</text>
   <text class="small" x="712" y="293">wiki/*.md</text>
 
   <rect class="box store" x="690" y="395" width="150" height="112"/>
-  <text class="label" x="712" y="428">Graph Store</text>
-  <text class="small" x="712" y="453">claims.jsonl</text>
-  <text class="small" x="712" y="475">evidence/nodes/edges</text>
+  <text class="label" x="712" y="428">Vector KG Store</text>
+  <text class="small" x="712" y="453">text_units + embeddings</text>
+  <text class="small" x="712" y="475">claims/entities/relations</text>
 
   <rect x="915" y="120" width="225" height="500" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
   <text class="group-title" x="937" y="150">QUERY-TIME RAG</text>
@@ -79,8 +79,8 @@
   <text class="small" x="967" y="243">CLI or API call</text>
 
   <rect class="box rag" x="945" y="310" width="165" height="86"/>
-  <text class="label" x="967" y="343">Local Search</text>
-  <text class="small" x="967" y="368">Wiki + claims + evidence</text>
+  <text class="label" x="967" y="343">Search Modes</text>
+  <text class="small" x="967" y="368">basic vector + local KG</text>
 
   <rect class="box rag" x="945" y="435" width="165" height="86"/>
   <text class="label" x="967" y="468">Context Assembly</text>

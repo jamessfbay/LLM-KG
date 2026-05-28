@@ -135,11 +135,11 @@ class MockLLMClient:
             )
         return claims, evidence, _dedupe_entities(entities), relations
 
-    def answer_question(self, question: str, context: str) -> str:
+    def answer_question(self, question: str, context: str, mode: str = "local") -> str:
         if not context.strip():
             return "No matching wiki pages, claims, or evidence were found."
         return (
-            "Mock answer based on retrieved evidence. Review the cited hits below; "
+            f"Mock {mode} answer based on retrieved evidence. Review the cited hits below; "
             "no unsupported reasoning was generated in mock mode."
         )
 

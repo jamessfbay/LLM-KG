@@ -9,8 +9,8 @@ TXT/MD/DOCX/PDF source
   -> Markdown wiki pages
   -> evidence-backed claims
   -> entities and typed relations
-  -> JSONL knowledge graph
-  -> query, lint, and reasoning workflows
+  -> PostgreSQL + pgvector retrieval store
+  -> basic/local query, lint, and reasoning workflows
 ```
 
 ## System Architecture
@@ -81,12 +81,16 @@ An internal agent can use LLM-KG as long-term memory for product, research, oper
 This repository implements the first local version:
 
 - Source readers for `.txt`, `.md`, `.docx`, and `.pdf`.
-- Pydantic models for documents, wiki pages, claims, evidence, entities, relations, query hits, and lint issues.
+- Pydantic models for documents, text units, wiki pages, claims, evidence, entities, relations, embeddings, query hits, and lint issues.
 - Deterministic `mock` LLM provider for offline development and tests.
 - Optional OpenAI provider for wiki generation, extraction, and answers.
+- Deterministic `mock` embedding provider and optional OpenAI embeddings.
+- PostgreSQL+pgvector storage for text units, graph records, and embeddings.
 - Markdown wiki output in `wiki/`.
 - JSONL graph output in `graph_store/`.
-- CLI commands for ingest, query, lint, and stats.
+- CLI commands for ingest, query, lint, stats, and database migration/status.
+
+This is a GraphRAG-inspired Local+Vector MVP. It implements chunking, extraction, embeddings, basic vector RAG, and local entity-aware retrieval. It does not yet implement community detection, global search, or DRIFT search.
 
 The default LLM provider is deterministic `mock`, so the project can run offline. Set `LLM_KG_PROVIDER=openai` and `OPENAI_API_KEY` to use OpenAI.
 
@@ -96,11 +100,35 @@ The default LLM provider is deterministic `mock`, so the project can run offline
 python3 -m pip install -e ".[dev]"
 ```
 
+## PostgreSQL + pgvector
+
+Start the local pgvector database:
+
+```bash
+docker compose up -d postgres
+```
+
+Set the database URL:
+
+```bash
+export LLM_KG_DATABASE_URL="postgresql://llm_kg:llm_kg@localhost:54329/llm_kg"
+```
+
+Apply migrations:
+
+```bash
+python -m llm_kg db init
+python -m llm_kg db status
+```
+
+When `LLM_KG_DATABASE_URL` or `[database].url` is configured, ingest writes to PostgreSQL+pgvector and also exports Markdown/JSONL for inspection. Without a database URL, the project falls back to the original local Markdown/JSONL behavior.
+
 ## CLI
 
 ```bash
 python -m llm_kg ingest raw_sources/markdown/example.md
-python -m llm_kg query "What policies affect Housing Project Alpha?"
+python -m llm_kg query "What policies affect Housing Project Alpha?" --mode local
+python -m llm_kg query "What evidence mentions SB 330?" --mode basic
 python -m llm_kg lint
 python -m llm_kg stats
 ```
@@ -117,7 +145,12 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 - `LLM_KG_CONFIG`: optional path to a TOML config file; defaults to `llm_kg.toml` in the workspace.
 - `LLM_KG_PROVIDER`: `mock` or `openai`; overrides config and defaults to `openai` only when `OPENAI_API_KEY` is present.
 - `LLM_KG_OPENAI_MODEL`: OpenAI model; defaults to `gpt-4.1-mini`.
+- `LLM_KG_DATABASE_URL`: PostgreSQL connection string.
+- `LLM_KG_EMBEDDING_PROVIDER`: `mock` or `openai`.
+- `LLM_KG_EMBEDDING_MODEL`: embedding model; defaults to `text-embedding-3-small`.
+- `LLM_KG_EMBEDDING_DIMENSIONS`: embedding size; defaults to `1536`.
 - `LLM_KG_TOP_K`: default query hit count.
+- `LLM_KG_QUERY_MODE`: `basic` or `local`; defaults to `local`.
 
 ## Config File
 
@@ -129,8 +162,19 @@ The project config file is TOML. Copy `llm_kg.toml.example` to `llm_kg.toml` whe
 provider = "mock"
 openai_model = "gpt-4.1-mini"
 
+[database]
+# Docker Compose default:
+# postgresql://llm_kg:llm_kg@localhost:54329/llm_kg
+url = ""
+
+[embedding]
+provider = "mock"
+model = "text-embedding-3-small"
+dimensions = 1536
+
 [query]
 top_k = 5
+default_mode = "local"
 ```
 
 Resolution order:
@@ -148,6 +192,7 @@ Do not put secrets in `llm_kg.toml`. Keep `OPENAI_API_KEY` in the environment.
 - Raw sources are not modified.
 - Wiki pages are written to `wiki/`.
 - Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, and `evidence.jsonl`.
+- When configured, PostgreSQL stores `documents`, `text_units`, `wiki_pages`, `claims`, `evidence`, `entities`, `relationships`, and `embeddings`.
 
 ## Python API
 

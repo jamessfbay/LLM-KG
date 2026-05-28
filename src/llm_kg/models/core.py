@@ -35,6 +35,17 @@ class WikiPage(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class TextUnit(BaseModel):
+    id: str
+    document_id: str
+    text: str
+    chunk_index: int
+    start_char: int
+    end_char: int
+    token_count: int
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class Evidence(BaseModel):
     id: str
     source_id: str
@@ -79,6 +90,17 @@ class Relation(BaseModel):
     valid_to: datetime | None = None
 
 
+class EmbeddingRecord(BaseModel):
+    id: str
+    record_type: Literal["text_unit", "wiki_page", "claim", "evidence", "entity", "relation"]
+    record_id: str
+    embedding: list[float]
+    model: str
+    dimensions: int
+    text: str
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class LintIssue(BaseModel):
     code: str
     message: str
@@ -87,7 +109,7 @@ class LintIssue(BaseModel):
 
 
 class QueryHit(BaseModel):
-    kind: Literal["wiki", "claim", "evidence"]
+    kind: Literal["wiki", "claim", "evidence", "text_unit", "entity", "relation"]
     id: str
     title: str | None = None
     text: str
@@ -98,6 +120,7 @@ class QueryHit(BaseModel):
 
 class QueryResult(BaseModel):
     question: str
+    mode: Literal["basic", "local"] = "local"
     answer: str
     hits: list[QueryHit]
     evidence: list[Evidence] = Field(default_factory=list)
@@ -105,6 +128,7 @@ class QueryResult(BaseModel):
 
 class IngestResult(BaseModel):
     document: Document
+    text_units: list[TextUnit] = Field(default_factory=list)
     wiki_page: WikiPage
     claims: list[Claim] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)

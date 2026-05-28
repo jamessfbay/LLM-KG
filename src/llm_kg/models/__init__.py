@@ -1,6 +1,7 @@
 from llm_kg.models.core import (
     Claim,
     Document,
+    EmbeddingRecord,
     Entity,
     Evidence,
     IngestResult,
@@ -8,12 +9,14 @@ from llm_kg.models.core import (
     QueryHit,
     QueryResult,
     Relation,
+    TextUnit,
     WikiPage,
 )
 
 __all__ = [
     "Claim",
     "Document",
+    "EmbeddingRecord",
     "Entity",
     "Evidence",
     "IngestResult",
@@ -21,5 +24,6 @@ __all__ = [
     "QueryHit",
     "QueryResult",
     "Relation",
+    "TextUnit",
     "WikiPage",
 ]

@@ -8,7 +8,7 @@ from llm_kg.llm.protocol import LLMClient
 
 def build_llm_client(settings: Settings) -> LLMClient:
     if settings.llm_provider == "openai":
-        return OpenAILLMClient(model=settings.openai_model)
+        return OpenAILLMClient(model=settings.openai_model, workspace=settings.workspace)
     if settings.llm_provider == "mock":
         return MockLLMClient()
     raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
