@@ -173,6 +173,15 @@ class UpdateProposalDraft(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class OntologySchema(BaseModel):
+    id: str = "generic"
+    entity_types: list[str] = Field(default_factory=list)
+    relation_predicates: list[str] = Field(default_factory=list)
+    require_claim_evidence: bool = True
+    require_relation_trace: bool = True
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class ApplyResult(BaseModel):
     status: Literal["applied", "rejected"]
     message: str
@@ -196,22 +205,49 @@ class QueryHit(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
+class ReasoningStep(BaseModel):
+    id: str
+    order: int
+    description: str
+    claim_ids: list[str] = Field(default_factory=list)
+    relation_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ReasoningTrace(BaseModel):
+    id: str
+    question: str
+    answer: str
+    mode: Literal["basic", "local"] = "local"
+    hits: list[QueryHit] = Field(default_factory=list)
+    used_claim_ids: list[str] = Field(default_factory=list)
+    used_relation_ids: list[str] = Field(default_factory=list)
+    used_evidence_ids: list[str] = Field(default_factory=list)
+    reasoning_steps: list[ReasoningStep] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    decision_output: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class QueryResult(BaseModel):
     question: str
     mode: Literal["basic", "local"] = "local"
     answer: str
     hits: list[QueryHit]
     evidence: list[Evidence] = Field(default_factory=list)
+    trace_id: str | None = None
 
 
 class IngestResult(BaseModel):
     document: Document
     text_units: list[TextUnit] = Field(default_factory=list)
     wiki_page: WikiPage
+    wiki_pages: list[WikiPage] = Field(default_factory=list)
     claims: list[Claim] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     entities: list[Entity] = Field(default_factory=list)
     relations: list[Relation] = Field(default_factory=list)
+    proposals: list[UpdateProposalDraft] = Field(default_factory=list)
 
 
 def relative_to_workspace(path: Path, workspace: Path) -> str:

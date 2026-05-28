@@ -19,6 +19,11 @@ class Settings(BaseModel):
     embedding_dimensions: int = 1536
     top_k: int = 5
     query_default_mode: str = "local"
+    ontology_profile: str = "generic"
+    governance_enforce_evidence: bool = True
+    governance_enforce_relation_trace: bool = True
+    kee_workspace: Path | None = None
+    kee_enable_direct_adapter: bool = True
 
     @classmethod
     def from_env(cls, workspace: Path | None = None) -> "Settings":
@@ -49,6 +54,21 @@ class Settings(BaseModel):
             query_default_mode=os.getenv("LLM_KG_QUERY_MODE")
             or file_values.get("query_default_mode")
             or "local",
+            ontology_profile=str(os.getenv("LLM_KG_ONTOLOGY_PROFILE") or file_values.get("ontology_profile") or "generic"),
+            governance_enforce_evidence=_bool(
+                os.getenv("LLM_KG_ENFORCE_EVIDENCE"), file_values.get("governance_enforce_evidence"), True
+            ),
+            governance_enforce_relation_trace=_bool(
+                os.getenv("LLM_KG_ENFORCE_RELATION_TRACE"),
+                file_values.get("governance_enforce_relation_trace"),
+                True,
+            ),
+            kee_workspace=_optional_path(os.getenv("LLM_KG_KEE_WORKSPACE") or file_values.get("kee_workspace")),
+            kee_enable_direct_adapter=_bool(
+                os.getenv("LLM_KG_KEE_ENABLE_DIRECT_ADAPTER"),
+                file_values.get("kee_enable_direct_adapter"),
+                True,
+            ),
         )
 
 
@@ -64,6 +84,9 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
     database = raw.get("database", {})
     embedding = raw.get("embedding", {})
     query = raw.get("query", {})
+    ontology = raw.get("ontology", {})
+    governance = raw.get("governance", {})
+    kee = raw.get("kee", {})
     if not isinstance(llm, dict):
         raise ValueError("[llm] must be a TOML table")
     if not isinstance(database, dict):
@@ -72,6 +95,12 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         raise ValueError("[embedding] must be a TOML table")
     if not isinstance(query, dict):
         raise ValueError("[query] must be a TOML table")
+    if not isinstance(ontology, dict):
+        raise ValueError("[ontology] must be a TOML table")
+    if not isinstance(governance, dict):
+        raise ValueError("[governance] must be a TOML table")
+    if not isinstance(kee, dict):
+        raise ValueError("[kee] must be a TOML table")
 
     values: dict[str, object] = {}
     if "provider" in llm:
@@ -90,4 +119,29 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         values["top_k"] = query["top_k"]
     if "default_mode" in query:
         values["query_default_mode"] = query["default_mode"]
+    if "profile" in ontology:
+        values["ontology_profile"] = ontology["profile"]
+    if "enforce_evidence" in governance:
+        values["governance_enforce_evidence"] = governance["enforce_evidence"]
+    if "enforce_relation_trace" in governance:
+        values["governance_enforce_relation_trace"] = governance["enforce_relation_trace"]
+    if "workspace" in kee:
+        values["kee_workspace"] = kee["workspace"]
+    if "enable_direct_adapter" in kee:
+        values["kee_enable_direct_adapter"] = kee["enable_direct_adapter"]
     return values
+
+
+def _bool(env_value: str | None, file_value: object, default: bool) -> bool:
+    value = env_value if env_value is not None else file_value
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _optional_path(value: object) -> Path | None:
+    if value in {None, ""}:
+        return None
+    return Path(str(value)).expanduser()

@@ -10,12 +10,16 @@ from pydantic import BaseModel
 from llm_kg.api import (
     apply_update_plan,
     create_proposal,
+    export_reasoning_trace,
     export_proposal,
     ingest_source,
+    list_reasoning_traces,
     lint_workspace,
     query_knowledge,
     trace_object,
+    trace_query,
     verify_claim,
+    verify_object,
 )
 from llm_kg.config import Settings
 from llm_kg.storage import JsonlStore, MarkdownStore, build_postgres_store
@@ -40,15 +44,23 @@ def main(argv: list[str] | None = None) -> int:
 
     verify_parser = subparsers.add_parser("verify", help="Verify evidence governance for an object")
     verify_subparsers = verify_parser.add_subparsers(dest="verify_type", required=True)
-    verify_claim_parser = verify_subparsers.add_parser("claim", help="Verify a claim")
-    verify_claim_parser.add_argument("claim_id")
+    for verify_type in ("claim", "relation", "entity", "evidence", "wiki_page"):
+        verify_item_parser = verify_subparsers.add_parser(verify_type, help=f"Verify a {verify_type}")
+        verify_item_parser.add_argument("target_id")
 
     trace_parser = subparsers.add_parser("trace", help="Trace an object's evidence path")
-    trace_parser.add_argument("target_type", choices=["claim", "relation", "entity", "evidence"])
+    trace_parser.add_argument("target_type", choices=["claim", "relation", "entity", "evidence", "query"])
     trace_parser.add_argument("target_id")
 
+    traces_parser = subparsers.add_parser("traces", help="List or export reasoning traces")
+    traces_subparsers = traces_parser.add_subparsers(dest="traces_command", required=True)
+    traces_subparsers.add_parser("list", help="List reasoning traces")
+    traces_export_parser = traces_subparsers.add_parser("export", help="Export a reasoning trace")
+    traces_export_parser.add_argument("trace_id")
+    traces_export_parser.add_argument("--format", default="llm-kee", choices=["llm-kee"])
+
     propose_parser = subparsers.add_parser("propose", help="Create an LLM-KEE-compatible update proposal")
-    propose_parser.add_argument("target_type", choices=["claim"])
+    propose_parser.add_argument("target_type", choices=["claim", "relation", "entity", "evidence", "wiki_page"])
     propose_parser.add_argument("target_id")
     propose_parser.add_argument("--change", required=True, help="Path to JSON change payload")
 
@@ -98,16 +110,45 @@ def main(argv: list[str] | None = None) -> int:
             postgres.apply_migrations(workspace / "migrations")
             print("Database migrations applied.")
             return 0
+        if args.db_command == "status":
+            status = postgres.status()
+            if args.json:
+                print(json.dumps(status, indent=2))
+            else:
+                print(f"Database: {status['database']}")
+                print(f"User: {status['user']}")
+                print(f"Migrated: {status['migrated']}")
+                print(f"Documents: {status['documents']}")
+                print(f"Embeddings: {status['embeddings']}")
+                print(f"Audit events: {status.get('audit_events', 0)}")
+                print(f"Proposals: {status.get('proposals', 0)}")
+                print(f"Reasoning traces: {status.get('reasoning_traces', 0)}")
+            return 0
     if args.command == "verify":
-        result = verify_claim(args.claim_id, workspace=workspace)
+        result = verify_claim(args.target_id, workspace=workspace) if args.verify_type == "claim" else verify_object(args.verify_type, args.target_id, workspace=workspace)
         return _print(
             args.json,
             result,
             _human_verification(result),
         )
     if args.command == "trace":
+        if args.target_type == "query":
+            result = trace_query(args.target_id, workspace=workspace)
+            return _print(args.json, result, _human_query_trace(result))
         result = trace_object(args.target_type, args.target_id, workspace=workspace)
-        return _print(args.json, result, _human_trace(result))
+        return _print(args.json, result, _human_object_trace(result))
+    if args.command == "traces":
+        if args.traces_command == "list":
+            traces = list_reasoning_traces(workspace=workspace)
+            if args.json:
+                print(json.dumps([trace.model_dump(mode="json") for trace in traces], indent=2))
+            else:
+                for trace in traces:
+                    print(f"{trace.id} {trace.mode} confidence={trace.confidence} {trace.question}")
+            return 0
+        payload = export_reasoning_trace(args.trace_id, workspace=workspace, export_format=args.format)
+        print(json.dumps(payload, indent=2))
+        return 0
     if args.command == "propose":
         change = read_json(args.change)
         proposal = create_proposal(args.target_type, args.target_id, change, workspace=workspace)
@@ -119,17 +160,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "apply-plan":
         result = apply_update_plan(read_json(args.plan_json), workspace=workspace)
         return _print(args.json, result, result.message)
-        if args.db_command == "status":
-            status = postgres.status()
-            if args.json:
-                print(json.dumps(status, indent=2))
-            else:
-                print(f"Database: {status['database']}")
-                print(f"User: {status['user']}")
-                print(f"Migrated: {status['migrated']}")
-                print(f"Documents: {status['documents']}")
-                print(f"Embeddings: {status['embeddings']}")
-            return 0
     if args.command == "lint":
         issues = lint_workspace(workspace=workspace)
         if args.json:
@@ -178,7 +208,7 @@ def _human_verification(result) -> str:
     return "\n".join(lines)
 
 
-def _human_trace(result) -> str:
+def _human_object_trace(result) -> str:
     lines = [f"Trace for {result.target_type}:{result.target_id}"]
     for node in result.nodes:
         title = f" {node.title}" if node.title else ""
@@ -188,6 +218,18 @@ def _human_trace(result) -> str:
     for gap in result.gaps:
         lines.append(f"{gap.severity.upper()} {gap.code}: {gap.message}")
     return "\n".join(lines)
+
+
+def _human_query_trace(result) -> str:
+    lines = [f"Query trace {result.id}", f"mode: {result.mode}", f"confidence: {result.confidence}", result.question, ""]
+    lines.append(result.answer)
+    if result.used_claim_ids:
+        lines.append(f"claims: {', '.join(result.used_claim_ids)}")
+    if result.used_relation_ids:
+        lines.append(f"relations: {', '.join(result.used_relation_ids)}")
+    if result.used_evidence_ids:
+        lines.append(f"evidence: {', '.join(result.used_evidence_ids)}")
+    return "\n".join(lines).strip()
 
 
 def _stats(workspace: Path) -> dict[str, Any]:

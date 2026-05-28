@@ -16,3 +16,15 @@ dimensions = 1536
 [query]
 top_k = 5
 default_mode = "local"
+
+[ontology]
+profile = "generic"
+
+[governance]
+enforce_evidence = true
+enforce_relation_trace = true
+
+[kee]
+# Optional sibling Knowledge Evolution Engine workspace.
+workspace = "../LLM-KEE"
+enable_direct_adapter = true

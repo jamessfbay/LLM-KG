@@ -17,6 +17,7 @@ from llm_kg.models import (
     UpdateProposalDraft,
     VerificationIssue,
     VerificationResult,
+    WikiPage,
 )
 from llm_kg.models.core import utc_now
 from llm_kg.readers.common import stable_id
@@ -64,6 +65,82 @@ def verify_claim(claim_id: str, workspace: Path) -> VerificationResult:
         evidence=evidence,
         issues=issues,
     )
+
+
+def verify_object(target_type: str, target_id: str, workspace: Path) -> VerificationResult:
+    if target_type == "claim":
+        return verify_claim(target_id, workspace)
+    settings = Settings.from_env(workspace)
+    issues: list[VerificationIssue] = []
+    evidence: list[Evidence] = []
+
+    if target_type == "relation":
+        relation = _get_relation(target_id, workspace, settings)
+        if not relation:
+            return _not_found_result(target_type, target_id)
+        if not _get_entity(relation.subject_id, workspace, settings):
+            issues.append(VerificationIssue(code="relation_missing_subject", message=f"Missing subject entity: {relation.subject_id}", severity="error"))
+        if not _get_entity(relation.object_id, workspace, settings):
+            issues.append(VerificationIssue(code="relation_missing_object", message=f"Missing object entity: {relation.object_id}", severity="error"))
+        if not relation.claim_ids and not relation.evidence_ids:
+            issues.append(VerificationIssue(code="relation_missing_trace", message="Relation has no claim or evidence trace.", severity="error"))
+        for claim_id in relation.claim_ids:
+            if not _get_claim(claim_id, workspace, settings):
+                issues.append(VerificationIssue(code="relation_bad_claim_ref", message=f"Missing claim: {claim_id}", severity="error"))
+        evidence = _get_evidence_many(relation.evidence_ids, workspace, settings)
+        _append_missing_evidence_issues(issues, relation.evidence_ids, evidence, "relation_bad_evidence_ref")
+        return VerificationResult(
+            target_type=target_type,
+            target_id=target_id,
+            valid=not any(issue.severity == "error" for issue in issues),
+            review_state=relation.review_state,
+            confidence=relation.confidence,
+            evidence=evidence,
+            issues=issues,
+        )
+
+    if target_type == "entity":
+        entity = _get_entity(target_id, workspace, settings)
+        if not entity:
+            return _not_found_result(target_type, target_id)
+        if not entity.source_ids:
+            issues.append(VerificationIssue(code="entity_missing_source", message="Entity has no source IDs.", severity="warning"))
+        return VerificationResult(target_type=target_type, target_id=target_id, valid=True, review_state=entity.review_state, issues=issues)
+
+    if target_type == "evidence":
+        items = _get_evidence_many([target_id], workspace, settings)
+        if not items:
+            return _not_found_result(target_type, target_id)
+        item = items[0]
+        if not item.source_id:
+            issues.append(VerificationIssue(code="evidence_missing_source", message="Evidence has no source ID.", severity="error"))
+        if not item.quote.strip():
+            issues.append(VerificationIssue(code="evidence_missing_quote", message="Evidence quote is empty.", severity="error"))
+        return VerificationResult(
+            target_type=target_type,
+            target_id=target_id,
+            valid=not any(issue.severity == "error" for issue in issues),
+            review_state=item.review_state,
+            confidence=item.confidence,
+            evidence=[item],
+            issues=issues,
+        )
+
+    if target_type == "wiki_page":
+        page = _get_wiki_page(target_id, workspace)
+        if not page:
+            return _not_found_result(target_type, target_id)
+        if not page.content_md.strip():
+            issues.append(VerificationIssue(code="wiki_page_empty", message="Wiki page content is empty.", severity="error"))
+        return VerificationResult(
+            target_type=target_type,
+            target_id=target_id,
+            valid=not any(issue.severity == "error" for issue in issues),
+            review_state=page.review_state,
+            issues=issues,
+        )
+
+    raise ValueError("target_type must be one of: claim, relation, entity, evidence, wiki_page")
 
 
 def trace_object(target_type: str, target_id: str, workspace: Path) -> TraceResult:
@@ -142,24 +219,25 @@ def create_proposal(
     target_id: str,
     proposed_change: dict[str, Any],
     workspace: Path,
-    proposal_type: str = "correction",
+    proposal_type: str | None = None,
 ) -> UpdateProposalDraft:
     settings = Settings.from_env(workspace)
     evidence_ids = list(proposed_change.get("evidence_ids") or [])
     if not evidence_ids and target_type == "claim":
         claim = _get_claim(target_id, workspace, settings)
         evidence_ids = claim.evidence_ids if claim else []
+    proposal_kind = proposal_type or _default_proposal_type(target_type)
     proposal = UpdateProposalDraft(
         id=stable_id("prop", json.dumps([target_type, target_id, proposed_change], sort_keys=True, default=str)),
-        proposal_type=proposal_type,
+        proposal_type=proposal_kind,
         target_type=target_type,
         target_id=target_id,
-        title=proposed_change.get("title") or f"Proposed {proposal_type} for {target_type} {target_id}",
+        title=proposed_change.get("title") or f"Proposed {proposal_kind} for {target_type} {target_id}",
         rationale=proposed_change.get("rationale") or "Generated by LLM-KG evidence governance workflow.",
         evidence_ids=evidence_ids,
         proposed_change=proposed_change,
         confidence=float(proposed_change.get("confidence", 0.5)),
-        status="draft",
+        status=str(proposed_change.get("proposal_status") or "draft"),
     )
     JsonlStore(workspace).upsert("proposals.jsonl", [proposal])
     _record_audit(workspace, "proposal", target_type, target_id, None, proposal.model_dump(mode="json"))
@@ -167,6 +245,16 @@ def create_proposal(
     if postgres:
         postgres.upsert_proposal(proposal)
     return proposal
+
+
+def _default_proposal_type(target_type: str) -> str:
+    return {
+        "claim": "update_claim",
+        "relation": "update_relation",
+        "entity": "merge_entity",
+        "evidence": "add_evidence",
+        "wiki_page": "update_wiki_page",
+    }.get(target_type, "update_claim")
 
 
 def export_proposal(proposal_id: str, workspace: Path, export_format: str = "llm-kee") -> dict[str, Any]:
@@ -180,6 +268,16 @@ def export_proposal(proposal_id: str, workspace: Path, export_format: str = "llm
     return payload
 
 
+def import_kee_decision(decision: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    proposal_id = str(decision.get("proposal_id") or decision.get("id") or "unknown")
+    event = _record_audit(workspace, "update", "kee_decision", proposal_id, None, decision)
+    return {"status": "imported", "audit_event_id": event.id, "proposal_id": proposal_id}
+
+
+def apply_kee_plan(plan: dict[str, Any], workspace: Path) -> ApplyResult:
+    return apply_update_plan(plan, workspace)
+
+
 def apply_update_plan(plan: dict[str, Any], workspace: Path) -> ApplyResult:
     if not _is_approved_plan(plan):
         return ApplyResult(status="rejected", message="Update plan is not approved by LLM-KEE.")
@@ -188,34 +286,54 @@ def apply_update_plan(plan: dict[str, Any], workspace: Path) -> ApplyResult:
     target_id = plan.get("target_id")
     payload = dict(plan.get("payload") or {})
     change = dict(payload.get("change") or payload.get("proposed_change") or {})
-    if target_type != "claim" or not target_id:
-        return ApplyResult(status="rejected", message="Only approved claim update plans are supported in this phase.")
+    if "new_value" in change and isinstance(change["new_value"], dict):
+        change = dict(change["new_value"])
+    if target_type not in {"claim", "relation", "entity", "evidence", "wiki_page"} or not target_id:
+        return ApplyResult(status="rejected", message="Only approved claim/relation/entity/evidence/wiki_page update plans are supported.")
 
     settings = Settings.from_env(workspace)
-    claims = JsonlStore(workspace).load("claims.jsonl", Claim)
-    existing = next((claim for claim in claims if claim.id == target_id), None) or _get_claim(target_id, workspace, settings)
+    existing = _get_governed_object(target_type, str(target_id), workspace, settings)
     if not existing:
-        return ApplyResult(status="rejected", message=f"Claim not found: {target_id}")
+        return ApplyResult(status="rejected", message=f"{target_type} not found: {target_id}")
 
     before = existing.model_dump(mode="json")
-    for field in ("text", "evidence_ids", "subject", "predicate", "object", "confidence", "status", "governance_notes"):
+    operation = str(plan.get("operation") or plan.get("proposal_type") or "").lower()
+    allowed_fields = _allowed_apply_fields(target_type)
+    for field in allowed_fields:
         if field in change:
             setattr(existing, field, change[field])
+    if operation.startswith("retire_") or change.get("review_state") == "superseded":
+        existing.review_state = "superseded"
+        if hasattr(existing, "status"):
+            setattr(existing, "status", "outdated")
+    else:
+        existing.review_state = "approved"
+    if "supersedes_id" in change:
+        existing.supersedes_id = change["supersedes_id"]
+    if "superseded_by_id" in change:
+        existing.superseded_by_id = change["superseded_by_id"]
     existing.version += 1
-    existing.review_state = "approved"
     existing.updated_by = "llm-kee"
     existing.updated_at = utc_now()
-    if any(claim.id == existing.id for claim in claims):
-        JsonlStore(workspace).upsert("claims.jsonl", [existing])
+    _save_governed_object(target_type, existing, workspace)
     postgres_event_id = None
     postgres = build_postgres_store(settings)
     if postgres:
-        postgres_event_id = postgres.update_claim(existing, before=before)
-    event = _record_audit(workspace, "apply", "claim", existing.id, before, existing.model_dump(mode="json"))
+        if target_type == "claim":
+            postgres_event_id = postgres.update_claim(existing, before=before)
+        elif target_type == "relation":
+            postgres_event_id = postgres.update_relation(existing, before=before)
+        elif target_type == "entity":
+            postgres_event_id = postgres.update_entity(existing, before=before)
+        elif target_type == "evidence":
+            postgres_event_id = postgres.update_evidence(existing, before=before)
+        elif target_type == "wiki_page":
+            postgres_event_id = postgres.update_wiki_page(existing, before=before)
+    event = _record_audit(workspace, "apply", target_type, existing.id, before, existing.model_dump(mode="json"))
     event_ids = [event.id]
     if postgres_event_id:
         event_ids.append(postgres_event_id)
-    return ApplyResult(status="applied", message=f"Applied approved update plan to claim {existing.id}.", audit_event_ids=event_ids)
+    return ApplyResult(status="applied", message=f"Applied approved update plan to {target_type} {existing.id}.", audit_event_ids=event_ids)
 
 
 def _get_claim(claim_id: str, workspace: Path, settings: Settings) -> Claim | None:
@@ -265,6 +383,55 @@ def _get_entity(entity_id: str, workspace: Path, settings: Settings) -> Entity |
     return next((entity for entity in JsonlStore(workspace).load("nodes.jsonl", Entity) if entity.id == entity_id), None)
 
 
+def _get_wiki_page(page_id: str, workspace: Path) -> WikiPage | None:
+    postgres = build_postgres_store(Settings.from_env(workspace))
+    if postgres:
+        page = postgres.get_wiki_page(page_id)
+        if page:
+            return page
+    return next((page for page in JsonlStore(workspace).load("wiki_pages.jsonl", WikiPage) if page.id == page_id), None)
+
+
+def _get_governed_object(target_type: str, target_id: str, workspace: Path, settings: Settings):
+    if target_type == "claim":
+        return _get_claim(target_id, workspace, settings)
+    if target_type == "relation":
+        return _get_relation(target_id, workspace, settings)
+    if target_type == "entity":
+        return _get_entity(target_id, workspace, settings)
+    if target_type == "evidence":
+        items = _get_evidence_many([target_id], workspace, settings)
+        return items[0] if items else None
+    if target_type == "wiki_page":
+        return _get_wiki_page(target_id, workspace)
+    return None
+
+
+def _save_governed_object(target_type: str, obj, workspace: Path) -> None:
+    filename = {
+        "claim": "claims.jsonl",
+        "relation": "edges.jsonl",
+        "entity": "nodes.jsonl",
+        "evidence": "evidence.jsonl",
+        "wiki_page": "wiki_pages.jsonl",
+    }[target_type]
+    JsonlStore(workspace).upsert(filename, [obj])
+    if target_type == "wiki_page":
+        path = workspace / obj.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(obj.content_md, encoding="utf-8")
+
+
+def _allowed_apply_fields(target_type: str) -> tuple[str, ...]:
+    return {
+        "claim": ("text", "source_ids", "evidence_ids", "subject", "predicate", "object", "confidence", "status", "governance_notes"),
+        "relation": ("subject_id", "predicate", "object_id", "claim_ids", "evidence_ids", "confidence", "valid_from", "valid_to", "governance_notes"),
+        "entity": ("name", "entity_type", "aliases", "description", "source_ids", "governance_notes"),
+        "evidence": ("source_id", "quote", "page_number", "url", "section", "confidence", "governance_notes"),
+        "wiki_page": ("title", "page_type", "path", "content_md", "source_ids", "wikilinks", "tags", "governance_notes"),
+    }[target_type]
+
+
 def _get_proposal(proposal_id: str, workspace: Path) -> UpdateProposalDraft | None:
     settings = Settings.from_env(workspace)
     postgres = build_postgres_store(settings)
@@ -304,6 +471,15 @@ def _record_audit(
     return event
 
 
+def _not_found_result(target_type: str, target_id: str) -> VerificationResult:
+    return VerificationResult(
+        target_type=target_type,
+        target_id=target_id,
+        valid=False,
+        issues=[VerificationIssue(code="object_not_found", message=f"{target_type} not found: {target_id}", severity="error")],
+    )
+
+
 def _missing_trace(target_type: str, target_id: str) -> TraceResult:
     return TraceResult(
         target_type=target_type,
@@ -324,6 +500,23 @@ def _missing_evidence_gaps(gaps: list[VerificationIssue], expected_ids: list[str
             VerificationIssue(
                 code="missing_evidence",
                 message=f"Evidence not found: {evidence_id}",
+                severity="error",
+            )
+        )
+
+
+def _append_missing_evidence_issues(
+    issues: list[VerificationIssue],
+    expected_ids: list[str],
+    evidence: list[Evidence],
+    code: str,
+) -> None:
+    found = {item.id for item in evidence}
+    for evidence_id in sorted(set(expected_ids) - found):
+        issues.append(
+            VerificationIssue(
+                code=code,
+                message=f"Missing evidence: {evidence_id}",
                 severity="error",
             )
         )

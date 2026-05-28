@@ -13,6 +13,7 @@ from llm_kg.models import (
     Entity,
     Evidence,
     QueryHit,
+    ReasoningTrace,
     Relation,
     TextUnit,
     UpdateProposalDraft,
@@ -42,10 +43,11 @@ class PostgresStore:
                     SELECT to_regclass('public.documents'),
                            to_regclass('public.embeddings'),
                            to_regclass('public.audit_events'),
-                           to_regclass('public.update_proposals')
+                           to_regclass('public.update_proposals'),
+                           to_regclass('public.reasoning_traces')
                     """
                 )
-                documents_table, embeddings_table, audit_table, proposals_table = cur.fetchone()
+                documents_table, embeddings_table, audit_table, proposals_table, traces_table = cur.fetchone()
                 if not documents_table or not embeddings_table:
                     return {"database": database, "user": user, "migrated": False, "documents": 0, "embeddings": 0}
                 cur.execute("SELECT count(*) FROM documents")
@@ -54,12 +56,16 @@ class PostgresStore:
                 embeddings = cur.fetchone()[0]
                 audit_events = 0
                 proposals = 0
+                traces = 0
                 if audit_table:
                     cur.execute("SELECT count(*) FROM audit_events")
                     audit_events = cur.fetchone()[0]
                 if proposals_table:
                     cur.execute("SELECT count(*) FROM update_proposals")
                     proposals = cur.fetchone()[0]
+                if traces_table:
+                    cur.execute("SELECT count(*) FROM reasoning_traces")
+                    traces = cur.fetchone()[0]
         return {
             "database": database,
             "user": user,
@@ -68,6 +74,7 @@ class PostgresStore:
             "embeddings": embeddings,
             "audit_events": audit_events,
             "proposals": proposals,
+            "reasoning_traces": traces,
         }
 
     def apply_migrations(self, migrations_dir: Path) -> None:
@@ -558,6 +565,170 @@ class PostgresStore:
             governance_notes=row[13],
         )
 
+    def get_wiki_page(self, page_id: str) -> WikiPage | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, title, page_type, path, content_md, source_ids, wikilinks, tags, updated_at,
+                           review_state, version, created_by, updated_by, supersedes_id, superseded_by_id,
+                           governance_notes
+                    FROM wiki_pages WHERE id = %s
+                    """,
+                    (page_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return WikiPage(
+            id=row[0],
+            title=row[1],
+            page_type=row[2],
+            path=row[3],
+            content_md=row[4],
+            source_ids=list(row[5] or []),
+            wikilinks=list(row[6] or []),
+            tags=list(row[7] or []),
+            updated_at=row[8],
+            review_state=row[9],
+            version=row[10],
+            created_by=row[11],
+            updated_by=row[12],
+            supersedes_id=row[13],
+            superseded_by_id=row[14],
+            governance_notes=row[15],
+        )
+
+    def update_entity(self, entity: Entity, before: dict[str, Any] | None = None) -> str:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE entities SET
+                      name=%s, entity_type=%s, aliases=%s::jsonb, description=%s, source_ids=%s::jsonb,
+                      review_state=%s, version=%s, updated_by=%s, updated_at=%s, supersedes_id=%s,
+                      superseded_by_id=%s, governance_notes=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        entity.name,
+                        entity.entity_type,
+                        _json(entity.aliases),
+                        entity.description,
+                        _json(entity.source_ids),
+                        entity.review_state,
+                        entity.version,
+                        entity.updated_by,
+                        entity.updated_at,
+                        entity.supersedes_id,
+                        entity.superseded_by_id,
+                        entity.governance_notes,
+                        entity.id,
+                    ),
+                )
+                event_id = _insert_audit_event(cur, "apply", "entity", entity.id, before, _payload(entity))
+            conn.commit()
+        return event_id
+
+    def update_evidence(self, evidence: Evidence, before: dict[str, Any] | None = None) -> str:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE evidence SET
+                      source_id=%s, quote=%s, page_number=%s, url=%s, section=%s, confidence=%s,
+                      review_state=%s, version=%s, updated_by=%s, updated_at=%s, supersedes_id=%s,
+                      superseded_by_id=%s, governance_notes=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        evidence.source_id,
+                        evidence.quote,
+                        evidence.page_number,
+                        evidence.url,
+                        evidence.section,
+                        evidence.confidence,
+                        evidence.review_state,
+                        evidence.version,
+                        evidence.updated_by,
+                        evidence.updated_at,
+                        evidence.supersedes_id,
+                        evidence.superseded_by_id,
+                        evidence.governance_notes,
+                        evidence.id,
+                    ),
+                )
+                event_id = _insert_audit_event(cur, "apply", "evidence", evidence.id, before, _payload(evidence))
+            conn.commit()
+        return event_id
+
+    def update_relation(self, relation: Relation, before: dict[str, Any] | None = None) -> str:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE relationships SET
+                      subject_id=%s, predicate=%s, object_id=%s, claim_ids=%s::jsonb, evidence_ids=%s::jsonb,
+                      confidence=%s, valid_from=%s, valid_to=%s, review_state=%s, version=%s, updated_by=%s,
+                      updated_at=%s, supersedes_id=%s, superseded_by_id=%s, governance_notes=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        relation.subject_id,
+                        relation.predicate,
+                        relation.object_id,
+                        _json(relation.claim_ids),
+                        _json(relation.evidence_ids),
+                        relation.confidence,
+                        relation.valid_from,
+                        relation.valid_to,
+                        relation.review_state,
+                        relation.version,
+                        relation.updated_by,
+                        relation.updated_at,
+                        relation.supersedes_id,
+                        relation.superseded_by_id,
+                        relation.governance_notes,
+                        relation.id,
+                    ),
+                )
+                event_id = _insert_audit_event(cur, "apply", "relation", relation.id, before, _payload(relation))
+            conn.commit()
+        return event_id
+
+    def update_wiki_page(self, page: WikiPage, before: dict[str, Any] | None = None) -> str:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE wiki_pages SET
+                      title=%s, page_type=%s, path=%s, content_md=%s, source_ids=%s::jsonb,
+                      wikilinks=%s::jsonb, tags=%s::jsonb, updated_at=%s, review_state=%s, version=%s,
+                      updated_by=%s, supersedes_id=%s, superseded_by_id=%s, governance_notes=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        page.title,
+                        page.page_type,
+                        page.path,
+                        page.content_md,
+                        _json(page.source_ids),
+                        _json(page.wikilinks),
+                        _json(page.tags),
+                        page.updated_at,
+                        page.review_state,
+                        page.version,
+                        page.updated_by,
+                        page.supersedes_id,
+                        page.superseded_by_id,
+                        page.governance_notes,
+                        page.id,
+                    ),
+                )
+                event_id = _insert_audit_event(cur, "apply", "wiki_page", page.id, before, _payload(page))
+            conn.commit()
+        return event_id
+
     def upsert_proposal(self, proposal: UpdateProposalDraft) -> None:
         with self.connect() as conn:
             with conn.cursor() as cur:
@@ -621,6 +792,74 @@ class PostgresStore:
             confidence=float(row[9]),
             status=row[10],
             created_at=row[11],
+        )
+
+    def upsert_reasoning_trace(self, trace: ReasoningTrace) -> None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO reasoning_traces
+                      (id, question, answer, mode, hits, used_claim_ids, used_relation_ids, used_evidence_ids,
+                       reasoning_steps, confidence, decision_output, created_at)
+                    VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s)
+                    ON CONFLICT (id) DO UPDATE SET
+                      answer=EXCLUDED.answer,
+                      hits=EXCLUDED.hits,
+                      used_claim_ids=EXCLUDED.used_claim_ids,
+                      used_relation_ids=EXCLUDED.used_relation_ids,
+                      used_evidence_ids=EXCLUDED.used_evidence_ids,
+                      reasoning_steps=EXCLUDED.reasoning_steps,
+                      confidence=EXCLUDED.confidence,
+                      decision_output=EXCLUDED.decision_output
+                    """,
+                    (
+                        trace.id,
+                        trace.question,
+                        trace.answer,
+                        trace.mode,
+                        _json([hit.model_dump(mode="json") for hit in trace.hits]),
+                        _json(trace.used_claim_ids),
+                        _json(trace.used_relation_ids),
+                        _json(trace.used_evidence_ids),
+                        _json([step.model_dump(mode="json") for step in trace.reasoning_steps]),
+                        trace.confidence,
+                        trace.decision_output,
+                        trace.created_at,
+                    ),
+                )
+                _insert_audit_event(cur, "create", "reasoning_trace", trace.id, None, _payload(trace))
+            conn.commit()
+
+    def get_reasoning_trace(self, trace_id: str) -> ReasoningTrace | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, question, answer, mode, hits, used_claim_ids, used_relation_ids, used_evidence_ids,
+                           reasoning_steps, confidence, decision_output, created_at
+                    FROM reasoning_traces WHERE id = %s
+                    """,
+                    (trace_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return ReasoningTrace.model_validate(
+            {
+                "id": row[0],
+                "question": row[1],
+                "answer": row[2],
+                "mode": row[3],
+                "hits": list(row[4] or []),
+                "used_claim_ids": list(row[5] or []),
+                "used_relation_ids": list(row[6] or []),
+                "used_evidence_ids": list(row[7] or []),
+                "reasoning_steps": list(row[8] or []),
+                "confidence": row[9],
+                "decision_output": row[10],
+                "created_at": row[11],
+            }
         )
 
     def insert_audit_event(self, event: AuditEvent) -> None:

@@ -10,5 +10,7 @@ def test_pgvector_migration_defines_core_tables() -> None:
     assert "CREATE TABLE IF NOT EXISTS embeddings" in sql
     assert "CREATE TABLE IF NOT EXISTS audit_events" in sql
     assert "CREATE TABLE IF NOT EXISTS update_proposals" in sql
+    assert "CREATE TABLE IF NOT EXISTS reasoning_traces" in sql
+    assert "CREATE TABLE IF NOT EXISTS ontology_schemas" in sql
     assert "ADD COLUMN IF NOT EXISTS review_state" in sql
     assert "VECTOR(1536)" in sql

@@ -1,6 +1,6 @@
 <svg width="1180" height="760" viewBox="0 0 1180 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">LLM-KG system architecture</title>
-  <desc id="desc">A layered architecture diagram showing ingest-time compilation, persistent storage, query-time RAG, and maintenance workflows.</desc>
+  <desc id="desc">A layered architecture diagram showing GraphRAG-style retrieval as substrate, plus evidence governance, reasoning traces, and LLM-KEE evolution.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
@@ -52,7 +52,7 @@
 
   <rect class="box compile" x="375" y="310" width="200" height="86"/>
   <text class="label" x="397" y="343">Wiki Generation</text>
-  <text class="small" x="397" y="368">Source and entity pages</text>
+  <text class="small" x="397" y="368">Source/entity/concept/synthesis</text>
 
   <rect class="box compile" x="375" y="435" width="200" height="112"/>
   <text class="label" x="397" y="468">Knowledge Extraction</text>
@@ -84,15 +84,15 @@
 
   <rect class="box rag" x="945" y="435" width="165" height="86"/>
   <text class="label" x="967" y="468">Verify + Trace</text>
-  <text class="small" x="967" y="493">Evidence governance</text>
+  <text class="small" x="967" y="493">Evidence + reasoning state</text>
 
   <rect class="box rag" x="945" y="560" width="165" height="86"/>
-  <text class="label" x="967" y="593">Proposal Handoff</text>
-  <text class="small" x="967" y="618">LLM-KEE gate</text>
+  <text class="label" x="967" y="593">Evolution Loop</text>
+  <text class="small" x="967" y="618">LLM-KEE gate + apply</text>
 
   <rect x="335" y="650" width="535" height="64" rx="12" fill="#fef2f2" stroke="#fecaca"/>
   <text class="group-title" x="357" y="678">MAINTENANCE</text>
-  <text class="small" x="357" y="701">Lint detects broken wikilinks, missing evidence, duplicate entities, and invalid graph references.</text>
+  <text class="small" x="357" y="701">Lint, ontology validation, source update proposals, audit events, and approved KEE apply plans.</text>
 
   <path class="line" d="M165 271 V305"/>
   <path class="line" d="M165 396 V430"/>

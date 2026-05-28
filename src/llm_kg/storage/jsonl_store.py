@@ -61,8 +61,11 @@ class JsonlStore:
             "edges.jsonl",
             "claims.jsonl",
             "evidence.jsonl",
+            "documents.jsonl",
+            "wiki_pages.jsonl",
             "proposals.jsonl",
             "audit_events.jsonl",
+            "reasoning_traces.jsonl",
         ):
             path = self.path(filename)
             if not path.exists():
