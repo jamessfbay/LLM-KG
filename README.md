@@ -10,7 +10,7 @@ TXT/MD/DOCX/PDF source
   -> evidence-backed claims
   -> entities and typed relations
   -> PostgreSQL + pgvector retrieval store
-  -> basic/local query, reasoning traces, lint, and evolution workflows
+  -> basic/local query, reasoning traces, lint, and governed updates
 ```
 
 ## System Architecture
@@ -27,12 +27,11 @@ LLM-KG adds the next layer: every useful source can become structured claims, ev
 
 ## How LLM-KG Differs From GraphRAG
 
-LLM-KG is not another GraphRAG clone. GraphRAG builds graph indexes to improve retrieval. LLM-KG builds an evidence-governed knowledge system for persistent reasoning, with a built-in Wiki compilation layer and a handoff contract to LLM-KEE for safe knowledge evolution.
+LLM-KG is not another GraphRAG clone. GraphRAG builds graph indexes to improve retrieval. LLM-KG builds an evidence-governed knowledge system for persistent reasoning, with a built-in Wiki compilation layer and auditable update boundaries.
 
 ```text
 GraphRAG improves retrieval.
 LLM-KG governs reasoning.
-LLM-KEE evolves knowledge.
 ```
 
 In this repository, GraphRAG-like retrieval is one layer: chunking, entity/relation/claim extraction, embeddings, and basic/local search. The differentiating layer is evidence governance:
@@ -40,9 +39,9 @@ In this repository, GraphRAG-like retrieval is one layer: chunking, entity/relat
 - No evidence, no claim.
 - No source trace, no relation.
 - No unreviewed correction directly mutates governed knowledge.
-- Corrections, conflicts, and outdated claims become proposal drafts for LLM-KEE.
-- Approved update plans can be applied through a narrow, auditable adapter boundary.
-- Query answers can be persisted as reasoning traces and exported to LLM-KEE as reusable learning signals.
+- Corrections, conflicts, and outdated claims become proposal drafts.
+- Approved update plans can be applied through a narrow, auditable boundary.
+- Query answers can be persisted as reasoning traces for review and reuse.
 
 ## Why Build This
 
@@ -112,8 +111,7 @@ This repository implements the first local version:
 - Generic ontology validation for common entity types and relation predicates.
 - Source, entity, concept, synthesis, and comparison wiki compilation where extracted knowledge supports it.
 - Reasoning traces for query answers, including used claims, relations, evidence, hits, confidence, and answer output.
-- Verification, trace, proposal export, reasoning trace export, and approved apply-plan commands.
-- Optional direct LLM-KEE adapter for approved proposal application.
+- Verification, trace, proposal, reasoning trace, and approved apply-plan commands.
 - Markdown wiki output in `wiki/`.
 - JSONL graph output in `graph_store/`.
 - CLI commands for ingest, query, lint, stats, and database migration/status.
@@ -164,9 +162,7 @@ python -m llm_kg verify relation rel_123
 python -m llm_kg trace claim claim_123
 python -m llm_kg trace query trace_123
 python -m llm_kg traces list
-python -m llm_kg traces export trace_123 --format llm-kee
 python -m llm_kg propose relation rel_123 --change change.json
-python -m llm_kg export-proposal prop_123 --format llm-kee
 python -m llm_kg apply-plan approved-plan.json
 python -m llm_kg lint
 python -m llm_kg stats
@@ -194,8 +190,6 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 - `LLM_KG_ONTOLOGY_PROFILE`: ontology profile; currently `generic`.
 - `LLM_KG_ENFORCE_EVIDENCE`: require claims to have traceable evidence.
 - `LLM_KG_ENFORCE_RELATION_TRACE`: require relations to have entity refs plus claim/evidence trace.
-- `LLM_KG_KEE_WORKSPACE`: optional sibling LLM-KEE workspace.
-- `LLM_KG_KEE_ENABLE_DIRECT_ADAPTER`: enables direct adapter assumptions in config.
 - `LLM_KG_OCR_PROVIDER`: `none` or `openai`; defaults to `none`.
 - `LLM_KG_OCR_MODEL`: OpenAI Vision OCR model; defaults to the configured OpenAI model.
 - `LLM_KG_OCR_MAX_PAGES`: maximum timeout/failed PDF pages to send to OCR; defaults to `25`.
@@ -250,9 +244,6 @@ model = ""
 max_pages = 25
 timeout_seconds = 30
 
-[kee]
-workspace = "../LLM-KEE"
-enable_direct_adapter = true
 ```
 
 Resolution order:
@@ -271,27 +262,6 @@ Do not put secrets in `llm_kg.toml`. Keep `OPENAI_API_KEY` in the environment.
 - Wiki pages are written to `wiki/`.
 - Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, `evidence.jsonl`, `wiki_pages.jsonl`, `reasoning_traces.jsonl`, `proposals.jsonl`, and `audit_events.jsonl`.
 - When configured, PostgreSQL stores `documents`, `text_units`, `wiki_pages`, `claims`, `evidence`, `entities`, `relationships`, `embeddings`, `reasoning_traces`, `ontology_schemas`, `update_proposals`, and `audit_events`.
-
-## LLM-KEE Evolution Loop
-
-LLM-KG owns governed knowledge storage and approved mutation. LLM-KEE owns feedback interpretation, evaluator aggregation, learning gate decisions, and reusable pattern learning.
-
-```bash
-python -m llm_kg export-proposal prop_123 --format llm-kee
-python -m llm_kee evaluate prop_123
-python -m llm_kee apply prop_123
-```
-
-When LLM-KEE is configured with:
-
-```toml
-[kg]
-enable_direct_adapter = true
-workspace = "../LLM-KG"
-project_path = "../LLM-KG"
-```
-
-`llm-kee apply` uses the direct LLM-KG adapter. Unapproved, rejected, or need-more-evidence proposals do not mutate LLM-KG. Approved plans are applied through `apply_update_plan`, versioned, and recorded in audit events.
 
 ## Python API
 
