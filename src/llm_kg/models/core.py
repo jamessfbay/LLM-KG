@@ -35,6 +35,7 @@ class Document(BaseModel):
     created_at: datetime | None = None
     ingested_at: datetime = Field(default_factory=utc_now)
     hash: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WikiPage(GovernanceFields):
@@ -67,6 +68,7 @@ class Evidence(GovernanceFields):
     page_number: int | None = None
     url: str | None = None
     section: str | None = None
+    source_mode: Literal["native_text", "ocr_text", "timeout_placeholder", "failed_placeholder", "unknown"] = "unknown"
     confidence: float = Field(ge=0.0, le=1.0)
 
 

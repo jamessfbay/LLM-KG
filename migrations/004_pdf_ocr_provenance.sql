@@ -1,0 +1,2 @@
+ALTER TABLE evidence
+  ADD COLUMN IF NOT EXISTS source_mode TEXT NOT NULL DEFAULT 'unknown';

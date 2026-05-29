@@ -22,6 +22,7 @@ from llm_kg.api import (
     verify_object,
 )
 from llm_kg.config import Settings
+from llm_kg.models import Claim, Document, Entity, Evidence, Relation
 from llm_kg.storage import JsonlStore, MarkdownStore, build_postgres_store
 
 
@@ -179,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wiki pages: {stats['wiki_pages']}")
             for name, count in stats["graph_records"].items():
                 print(f"{name}: {count}")
+            quality = stats.get("extraction_quality", {})
+            if quality:
+                print("Extraction quality:")
+                for key, value in quality.items():
+                    print(f"  {key}: {value}")
         return 0
     return 2
 
@@ -234,10 +240,12 @@ def _human_query_trace(result) -> str:
 
 def _stats(workspace: Path) -> dict[str, Any]:
     settings = Settings.from_env(workspace)
+    jsonl = JsonlStore(workspace)
     stats = {
         "workspace": str(workspace),
         "wiki_pages": len(MarkdownStore(workspace).load_pages()),
-        "graph_records": JsonlStore(workspace).counts(),
+        "graph_records": jsonl.counts(),
+        "extraction_quality": _extraction_quality(jsonl),
     }
     postgres = build_postgres_store(settings)
     if postgres:
@@ -246,3 +254,52 @@ def _stats(workspace: Path) -> dict[str, Any]:
         except Exception as exc:
             stats["postgres"] = {"error": str(exc)}
     return stats
+
+
+def _extraction_quality(jsonl: JsonlStore) -> dict[str, Any]:
+    documents = jsonl.load("documents.jsonl", Document)
+    claims = jsonl.load("claims.jsonl", Claim)
+    evidence = jsonl.load("evidence.jsonl", Evidence)
+    entities = jsonl.load("nodes.jsonl", Entity)
+    relations = jsonl.load("edges.jsonl", Relation)
+    evidence_ids = {item.id for item in evidence}
+    entity_ids = {item.id for item in entities}
+    pdf_coverages = [
+        document.metadata.get("pdf_page_coverage")
+        for document in documents
+        if document.source_type == "pdf" and isinstance(document.metadata.get("pdf_page_coverage"), dict)
+    ]
+    noisy_entities = [
+        entity
+        for entity in entities
+        if "\n" in entity.name or len(entity.name) > 80 or (entity.name.isupper() and len(entity.name.split()) > 4)
+    ]
+    valid_relations = [
+        relation
+        for relation in relations
+        if relation.subject_id in entity_ids
+        and relation.object_id in entity_ids
+        and all(evidence_id in evidence_ids for evidence_id in relation.evidence_ids)
+    ]
+    quality: dict[str, Any] = {
+        "claims_with_evidence": f"{sum(1 for claim in claims if claim.evidence_ids)}/{len(claims)}",
+        "claims_with_page_numbers": f"{sum(1 for claim in claims if _claim_has_page(claim, evidence))}/{len(claims)}",
+        "noisy_entity_ratio": round(len(noisy_entities) / len(entities), 3) if entities else 0,
+        "relation_validity": f"{len(valid_relations)}/{len(relations)}",
+        "ocr_evidence_count": sum(1 for item in evidence if item.source_mode == "ocr_text"),
+    }
+    if pdf_coverages:
+        quality["pdf_page_coverage"] = {
+            "total_pages": sum(int(item.get("total_pages") or 0) for item in pdf_coverages),
+            "text_pages": sum(int(item.get("text_pages") or 0) for item in pdf_coverages),
+            "native_pages": sum(int(item.get("native_pages") or 0) for item in pdf_coverages),
+            "ocr_pages": sum(int(item.get("ocr_pages") or 0) for item in pdf_coverages),
+            "timeout_pages": sum(int(item.get("timeout_pages") or 0) for item in pdf_coverages),
+            "failed_pages": sum(int(item.get("failed_pages") or 0) for item in pdf_coverages),
+        }
+    return quality
+
+
+def _claim_has_page(claim: Claim, evidence: list[Evidence]) -> bool:
+    by_id = {item.id: item for item in evidence}
+    return any(by_id.get(evidence_id) and by_id[evidence_id].page_number is not None for evidence_id in claim.evidence_ids)

@@ -14,6 +14,7 @@ def test_settings_loads_workspace_toml(tmp_path: Path, monkeypatch) -> None:
                 "[llm]",
                 'provider = "mock"',
                 'openai_model = "gpt-4.1-mini"',
+                "fallback_to_mock = true",
                 "",
                 "[database]",
                 'url = "postgresql://user:pass@localhost:5432/db"',
@@ -26,6 +27,12 @@ def test_settings_loads_workspace_toml(tmp_path: Path, monkeypatch) -> None:
                 "[query]",
                 "top_k = 7",
                 'default_mode = "basic"',
+                "",
+                "[ocr]",
+                'provider = "openai"',
+                'model = "gpt-4.1-mini"',
+                "max_pages = 9",
+                "timeout_seconds = 12",
                 "",
             ]
         ),
@@ -43,6 +50,11 @@ def test_settings_loads_workspace_toml(tmp_path: Path, monkeypatch) -> None:
     assert settings.embedding_dimensions == 1536
     assert settings.top_k == 7
     assert settings.query_default_mode == "basic"
+    assert settings.llm_fallback_to_mock is True
+    assert settings.ocr_provider == "openai"
+    assert settings.ocr_model == "gpt-4.1-mini"
+    assert settings.ocr_max_pages == 9
+    assert settings.ocr_timeout_seconds == 12
 
 
 def test_environment_overrides_toml(tmp_path: Path, monkeypatch) -> None:

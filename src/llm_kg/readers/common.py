@@ -24,7 +24,7 @@ def slugify(value: str) -> str:
     return slug or "untitled"
 
 
-def build_document(path: Path, source_type: str, content: str) -> Document:
+def build_document(path: Path, source_type: str, content: str, metadata: dict | None = None) -> Document:
     if not content.strip():
         raise ValueError(f"Source is empty: {path}")
     digest = file_hash(path)
@@ -35,4 +35,5 @@ def build_document(path: Path, source_type: str, content: str) -> Document:
         source_type=source_type,  # type: ignore[arg-type]
         content=content,
         hash=digest,
+        metadata=metadata or {},
     )

@@ -2,6 +2,7 @@
 # "mock" runs fully offline. Use "openai" with OPENAI_API_KEY for model-backed runs.
 provider = "mock"
 openai_model = "gpt-4.1-mini"
+fallback_to_mock = false
 
 [database]
 # Docker Compose default:
@@ -23,6 +24,14 @@ profile = "generic"
 [governance]
 enforce_evidence = true
 enforce_relation_trace = true
+
+[ocr]
+# "none" keeps native pypdf extraction only. "openai" renders failed/timeout PDF pages
+# and sends page images to OpenAI Vision OCR when OPENAI_API_KEY is available.
+provider = "none"
+model = ""
+max_pages = 25
+timeout_seconds = 30
 
 [kee]
 # Optional sibling Knowledge Evolution Engine workspace.

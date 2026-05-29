@@ -13,6 +13,7 @@ class Settings(BaseModel):
     workspace: Path = Field(default_factory=lambda: Path.cwd())
     llm_provider: str = "mock"
     openai_model: str = "gpt-4.1-mini"
+    llm_fallback_to_mock: bool = False
     database_url: str | None = None
     embedding_provider: str = "mock"
     embedding_model: str = "text-embedding-3-small"
@@ -24,6 +25,10 @@ class Settings(BaseModel):
     governance_enforce_relation_trace: bool = True
     kee_workspace: Path | None = None
     kee_enable_direct_adapter: bool = True
+    ocr_provider: str = "none"
+    ocr_model: str | None = None
+    ocr_max_pages: int = 25
+    ocr_timeout_seconds: int = 30
 
     @classmethod
     def from_env(cls, workspace: Path | None = None) -> "Settings":
@@ -41,6 +46,11 @@ class Settings(BaseModel):
             openai_model=os.getenv("LLM_KG_OPENAI_MODEL")
             or file_values.get("openai_model")
             or "gpt-4.1-mini",
+            llm_fallback_to_mock=_bool(
+                os.getenv("LLM_KG_OPENAI_FALLBACK_TO_MOCK"),
+                file_values.get("llm_fallback_to_mock"),
+                False,
+            ),
             embedding_provider=os.getenv("LLM_KG_EMBEDDING_PROVIDER")
             or file_values.get("embedding_provider")
             or provider,
@@ -69,6 +79,18 @@ class Settings(BaseModel):
                 file_values.get("kee_enable_direct_adapter"),
                 True,
             ),
+            ocr_provider=str(os.getenv("LLM_KG_OCR_PROVIDER") or file_values.get("ocr_provider") or "none"),
+            ocr_model=str(
+                os.getenv("LLM_KG_OCR_MODEL")
+                or file_values.get("ocr_model")
+                or os.getenv("LLM_KG_OPENAI_MODEL")
+                or file_values.get("openai_model")
+                or "gpt-4.1-mini"
+            ),
+            ocr_max_pages=int(os.getenv("LLM_KG_OCR_MAX_PAGES") or file_values.get("ocr_max_pages") or "25"),
+            ocr_timeout_seconds=int(
+                os.getenv("LLM_KG_OCR_TIMEOUT_SECONDS") or file_values.get("ocr_timeout_seconds") or "30"
+            ),
         )
 
 
@@ -87,6 +109,7 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
     ontology = raw.get("ontology", {})
     governance = raw.get("governance", {})
     kee = raw.get("kee", {})
+    ocr = raw.get("ocr", {})
     if not isinstance(llm, dict):
         raise ValueError("[llm] must be a TOML table")
     if not isinstance(database, dict):
@@ -101,12 +124,16 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         raise ValueError("[governance] must be a TOML table")
     if not isinstance(kee, dict):
         raise ValueError("[kee] must be a TOML table")
+    if not isinstance(ocr, dict):
+        raise ValueError("[ocr] must be a TOML table")
 
     values: dict[str, object] = {}
     if "provider" in llm:
         values["llm_provider"] = llm["provider"]
     if "openai_model" in llm:
         values["openai_model"] = llm["openai_model"]
+    if "fallback_to_mock" in llm:
+        values["llm_fallback_to_mock"] = llm["fallback_to_mock"]
     if "url" in database:
         values["database_url"] = database["url"]
     if "provider" in embedding:
@@ -129,6 +156,14 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         values["kee_workspace"] = kee["workspace"]
     if "enable_direct_adapter" in kee:
         values["kee_enable_direct_adapter"] = kee["enable_direct_adapter"]
+    if "provider" in ocr:
+        values["ocr_provider"] = ocr["provider"]
+    if "model" in ocr:
+        values["ocr_model"] = ocr["model"]
+    if "max_pages" in ocr:
+        values["ocr_max_pages"] = ocr["max_pages"]
+    if "timeout_seconds" in ocr:
+        values["ocr_timeout_seconds"] = ocr["timeout_seconds"]
     return values
 
 

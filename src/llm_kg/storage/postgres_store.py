@@ -119,7 +119,7 @@ class PostgresStore:
                         document.created_at,
                         document.ingested_at,
                         document.hash,
-                        "{}",
+                        _json(document.metadata),
                     ),
                 )
                 for text_unit in text_units:
@@ -192,15 +192,16 @@ class PostgresStore:
                     cur.execute(
                         """
                         INSERT INTO evidence
-                          (id, source_id, quote, page_number, url, section, confidence,
+                          (id, source_id, quote, page_number, url, section, source_mode, confidence,
                            review_state, version, created_by, updated_by, updated_at, supersedes_id,
                            superseded_by_id, governance_notes)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (id) DO UPDATE SET
                           quote=EXCLUDED.quote,
                           page_number=EXCLUDED.page_number,
                           url=EXCLUDED.url,
                           section=EXCLUDED.section,
+                          source_mode=EXCLUDED.source_mode,
                           confidence=EXCLUDED.confidence,
                           review_state=EXCLUDED.review_state,
                           version=EXCLUDED.version,
@@ -217,6 +218,7 @@ class PostgresStore:
                             item.page_number,
                             item.url,
                             item.section,
+                            item.source_mode,
                             item.confidence,
                             item.review_state,
                             item.version,
@@ -475,7 +477,7 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, source_id, quote, page_number, url, section, confidence, review_state, version,
+                    SELECT id, source_id, quote, page_number, url, section, source_mode, confidence, review_state, version,
                            created_by, updated_by, updated_at, supersedes_id, superseded_by_id, governance_notes
                     FROM evidence WHERE id = ANY(%s)
                     """,
@@ -490,15 +492,16 @@ class PostgresStore:
                 page_number=row[3],
                 url=row[4],
                 section=row[5],
-                confidence=float(row[6]),
-                review_state=row[7],
-                version=row[8],
-                created_by=row[9],
-                updated_by=row[10],
-                updated_at=row[11],
-                supersedes_id=row[12],
-                superseded_by_id=row[13],
-                governance_notes=row[14],
+                source_mode=row[6] or "unknown",
+                confidence=float(row[7]),
+                review_state=row[8],
+                version=row[9],
+                created_by=row[10],
+                updated_by=row[11],
+                updated_at=row[12],
+                supersedes_id=row[13],
+                superseded_by_id=row[14],
+                governance_notes=row[15],
             )
             for row in rows
         ]
@@ -636,7 +639,7 @@ class PostgresStore:
                 cur.execute(
                     """
                     UPDATE evidence SET
-                      source_id=%s, quote=%s, page_number=%s, url=%s, section=%s, confidence=%s,
+                      source_id=%s, quote=%s, page_number=%s, url=%s, section=%s, source_mode=%s, confidence=%s,
                       review_state=%s, version=%s, updated_by=%s, updated_at=%s, supersedes_id=%s,
                       superseded_by_id=%s, governance_notes=%s
                     WHERE id=%s
@@ -647,6 +650,7 @@ class PostgresStore:
                         evidence.page_number,
                         evidence.url,
                         evidence.section,
+                        evidence.source_mode,
                         evidence.confidence,
                         evidence.review_state,
                         evidence.version,

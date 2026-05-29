@@ -103,7 +103,8 @@ This repository implements the first local version:
 - Source readers for `.txt`, `.md`, `.docx`, and `.pdf`.
 - Pydantic models for documents, text units, wiki pages, claims, evidence, entities, relations, embeddings, query hits, and lint issues.
 - Deterministic `mock` LLM provider for offline development and tests.
-- Optional OpenAI provider for wiki generation, extraction, and answers.
+- Optional OpenAI provider for wiki generation, strict structured extraction, and answers.
+- Optional OpenAI Vision OCR fallback for PDF pages where native text extraction fails or times out.
 - Deterministic `mock` embedding provider and optional OpenAI embeddings.
 - PostgreSQL+pgvector storage for text units, graph records, and embeddings.
 - Evidence governance fields for claims, evidence, entities, relations, and wiki pages.
@@ -120,6 +121,8 @@ This repository implements the first local version:
 This is a GraphRAG-inspired Local+Vector MVP. It implements chunking, extraction, embeddings, basic vector RAG, and local entity-aware retrieval. It does not yet implement community detection, global search, or DRIFT search.
 
 The default LLM provider is deterministic `mock`, so the project can run offline. Set `LLM_KG_PROVIDER=openai` and `OPENAI_API_KEY` to use OpenAI.
+
+OpenAI extraction uses Structured Outputs for claims, evidence, entities, and relations. Malformed OpenAI extraction responses fail clearly by default; set `LLM_KG_OPENAI_FALLBACK_TO_MOCK=true` only when you explicitly want deterministic mock fallback for local experiments.
 
 ## Install
 
@@ -181,6 +184,7 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 - `LLM_KG_CONFIG`: optional path to a TOML config file; defaults to `llm_kg.toml` in the workspace.
 - `LLM_KG_PROVIDER`: `mock` or `openai`; overrides config and defaults to `openai` only when `OPENAI_API_KEY` is present.
 - `LLM_KG_OPENAI_MODEL`: OpenAI model; defaults to `gpt-4.1-mini`.
+- `LLM_KG_OPENAI_FALLBACK_TO_MOCK`: set `true` to allow mock extraction fallback after OpenAI structured extraction errors.
 - `LLM_KG_DATABASE_URL`: PostgreSQL connection string.
 - `LLM_KG_EMBEDDING_PROVIDER`: `mock` or `openai`.
 - `LLM_KG_EMBEDDING_MODEL`: embedding model; defaults to `text-embedding-3-small`.
@@ -192,6 +196,21 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 - `LLM_KG_ENFORCE_RELATION_TRACE`: require relations to have entity refs plus claim/evidence trace.
 - `LLM_KG_KEE_WORKSPACE`: optional sibling LLM-KEE workspace.
 - `LLM_KG_KEE_ENABLE_DIRECT_ADAPTER`: enables direct adapter assumptions in config.
+- `LLM_KG_OCR_PROVIDER`: `none` or `openai`; defaults to `none`.
+- `LLM_KG_OCR_MODEL`: OpenAI Vision OCR model; defaults to the configured OpenAI model.
+- `LLM_KG_OCR_MAX_PAGES`: maximum timeout/failed PDF pages to send to OCR; defaults to `25`.
+- `LLM_KG_OCR_TIMEOUT_SECONDS`: per-page OCR call timeout; defaults to `30`.
+
+## PDF OCR And Extraction Quality
+
+PDF ingest first tries native text extraction with page-level timeout protection. When OCR is enabled, pages that fail or time out are rendered with PyMuPDF and sent to OpenAI Vision OCR. The resulting source text keeps explicit page markers such as:
+
+```text
+[Page 12 | ocr_text | provider=openai]
+...
+```
+
+Evidence records preserve `page_number` and `source_mode`, and source wiki pages include an extraction coverage summary. `python -m llm_kg stats` reports extraction quality metrics such as PDF page coverage, OCR evidence count, claims with evidence, claims with page numbers, noisy entity ratio, and relation validity. `python -m llm_kg lint` warns when PDF evidence lacks page numbers or page coverage is low.
 
 ## Config File
 
@@ -202,6 +221,7 @@ The project config file is TOML. Copy `llm_kg.toml.example` to `llm_kg.toml` whe
 # "mock" runs fully offline. Use "openai" with OPENAI_API_KEY for model-backed runs.
 provider = "mock"
 openai_model = "gpt-4.1-mini"
+fallback_to_mock = false
 
 [database]
 # Docker Compose default:
@@ -223,6 +243,12 @@ profile = "generic"
 [governance]
 enforce_evidence = true
 enforce_relation_trace = true
+
+[ocr]
+provider = "none"
+model = ""
+max_pages = 25
+timeout_seconds = 30
 
 [kee]
 workspace = "../LLM-KEE"

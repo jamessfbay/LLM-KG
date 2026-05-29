@@ -26,6 +26,7 @@ class MockLLMClient:
                 f"- source_path: `{document.source_path}`",
                 f"- source_type: `{document.source_type}`",
                 f"- hash: `{document.hash}`",
+                *_coverage_lines(document),
                 "",
                 "## Summary",
                 summary,
@@ -58,6 +59,7 @@ class MockLLMClient:
         evidence: list[Evidence] = []
         claims: list[Claim] = []
         for sentence in sentences:
+            page_number, source_mode = _page_context(document.content, sentence)
             evidence_id = stable_id("ev", f"{document.id}:{sentence}")
             claim_id = stable_id("claim", f"{document.id}:{sentence}")
             evidence.append(
@@ -65,7 +67,9 @@ class MockLLMClient:
                     id=evidence_id,
                     source_id=document.id,
                     quote=sentence[:1000],
+                    page_number=page_number,
                     section=wiki_page.title,
+                    source_mode=source_mode,
                     confidence=0.72,
                 )
             )
@@ -145,7 +149,8 @@ class MockLLMClient:
 
 
 def _sentences(content: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", content).strip()
+    normalized = re.sub(r"\[Page\s+\d+\s+\|\s+[^\]]+\]", " ", content)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized:
         return []
     parts = re.split(r"(?<=[.!?。！？])\s+", normalized)
@@ -157,6 +162,20 @@ def _summarize(content: str) -> str:
     if not sentences:
         return "No summary available."
     return " ".join(sentences[:3])
+
+
+def _coverage_lines(document: Document) -> list[str]:
+    coverage = document.metadata.get("pdf_page_coverage") if document.metadata else None
+    if not isinstance(coverage, dict):
+        return []
+    return [
+        "- extraction_coverage:",
+        f"  - total_pages: `{coverage.get('total_pages', 0)}`",
+        f"  - native_pages: `{coverage.get('native_pages', 0)}`",
+        f"  - ocr_pages: `{coverage.get('ocr_pages', 0)}`",
+        f"  - timeout_pages: `{coverage.get('timeout_pages', 0)}`",
+        f"  - failed_pages: `{coverage.get('failed_pages', 0)}`",
+    ]
 
 
 def _extract_entity_names(content: str) -> list[str]:
@@ -202,6 +221,20 @@ def _entity_type(name: str) -> str:
     if any(token in lowered for token in ("risk", "issue")):
         return "risk"
     return "concept"
+
+
+def _page_context(content: str, sentence: str) -> tuple[int | None, str]:
+    position = content.find(sentence)
+    if position < 0:
+        return None, "unknown"
+    before = content[:position]
+    matches = re.findall(r"\[Page\s+(\d+)\s+\|\s+([a-z_]+)", before)
+    if not matches:
+        return None, "unknown"
+    page, mode = matches[-1]
+    if mode not in {"native_text", "ocr_text", "timeout_placeholder", "failed_placeholder"}:
+        mode = "unknown"
+    return int(page), mode
 
 
 def _dedupe_entities(entities: list[Entity]) -> list[Entity]:

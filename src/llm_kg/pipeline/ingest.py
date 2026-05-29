@@ -25,7 +25,7 @@ def ingest_source(
 ) -> IngestResult:
     workspace = workspace.resolve()
     settings = settings or Settings.from_env(workspace)
-    document = read_source(path)
+    document = read_source(path, settings=settings)
     jsonl = JsonlStore(workspace)
     source_update_proposals = _source_update_proposals(document, jsonl, workspace)
     text_units = chunk_document(document)

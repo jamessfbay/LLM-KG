@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from llm_kg.models import Claim, Entity, Evidence, LintIssue, Relation
+from llm_kg.models import Claim, Document, Entity, Evidence, LintIssue, Relation
 from llm_kg.storage import JsonlStore, MarkdownStore
 
 
@@ -33,6 +33,7 @@ def lint_workspace(workspace: Path) -> list[LintIssue]:
     evidence = jsonl.load("evidence.jsonl", Evidence)
     entities = jsonl.load("nodes.jsonl", Entity)
     relations = jsonl.load("edges.jsonl", Relation)
+    documents = jsonl.load("documents.jsonl", Document)
 
     evidence_ids = {item.id for item in evidence}
     entity_ids = {item.id for item in entities}
@@ -46,6 +47,40 @@ def lint_workspace(workspace: Path) -> list[LintIssue]:
                 issues.append(
                     LintIssue(code="claim_bad_evidence_ref", message=f"Claim {claim.id} references {evidence_id}")
                 )
+
+    for item in evidence:
+        if item.source_mode in {"timeout_placeholder", "failed_placeholder"} or "text extraction timed out" in item.quote:
+            issues.append(
+                LintIssue(
+                    code="evidence_from_unreadable_pdf_page",
+                    message=f"Evidence {item.id} appears to come from an unreadable PDF placeholder.",
+                    severity="warning",
+                )
+            )
+        if item.source_id in {document.id for document in documents if document.source_type == "pdf"} and item.page_number is None:
+            issues.append(
+                LintIssue(
+                    code="pdf_evidence_missing_page",
+                    message=f"PDF evidence {item.id} has no page_number.",
+                    severity="warning",
+                )
+            )
+
+    for document in documents:
+        coverage = document.metadata.get("pdf_page_coverage") if document.metadata else None
+        if not isinstance(coverage, dict):
+            continue
+        total = int(coverage.get("total_pages") or 0)
+        text_pages = int(coverage.get("text_pages") or 0)
+        if total and text_pages / total < 0.8:
+            issues.append(
+                LintIssue(
+                    code="low_pdf_text_coverage",
+                    message=f"PDF {document.id} has text for {text_pages}/{total} pages.",
+                    path=document.source_path,
+                    severity="warning",
+                )
+            )
 
     name_counts = Counter(entity.name.lower() for entity in entities)
     for name, count in name_counts.items():
