@@ -33,7 +33,7 @@ model = ""
 max_pages = 25
 timeout_seconds = 30
 
-[kee]
-# Optional sibling Knowledge Evolution Engine workspace.
-workspace = "../LLM-KEE"
-enable_direct_adapter = true
+[validation]
+providers = "gemini,xai"
+gemini_model = "gemini-2.5-flash"
+xai_model = "grok-4.3"

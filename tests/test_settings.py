@@ -34,6 +34,11 @@ def test_settings_loads_workspace_toml(tmp_path: Path, monkeypatch) -> None:
                 "max_pages = 9",
                 "timeout_seconds = 12",
                 "",
+                "[validation]",
+                'providers = "gemini,xai"',
+                'gemini_model = "gemini-2.5-flash"',
+                'xai_model = "grok-4.3"',
+                "",
             ]
         ),
         encoding="utf-8",
@@ -55,6 +60,9 @@ def test_settings_loads_workspace_toml(tmp_path: Path, monkeypatch) -> None:
     assert settings.ocr_model == "gpt-4.1-mini"
     assert settings.ocr_max_pages == 9
     assert settings.ocr_timeout_seconds == 12
+    assert settings.validation_providers == "gemini,xai"
+    assert settings.gemini_model == "gemini-2.5-flash"
+    assert settings.xai_model == "grok-4.3"
 
 
 def test_environment_overrides_toml(tmp_path: Path, monkeypatch) -> None:

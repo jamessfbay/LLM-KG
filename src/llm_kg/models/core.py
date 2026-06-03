@@ -240,6 +240,43 @@ class QueryResult(BaseModel):
     trace_id: str | None = None
 
 
+class CrossValidationClaimResult(BaseModel):
+    claim_id: str
+    supported: bool
+    support_level: Literal["full", "partial", "unsupported", "unclear"]
+    citation_ok: bool
+    planning_fact_ok: bool
+    issues: list[str] = Field(default_factory=list)
+    rationale: str
+
+
+class CrossValidationProviderResult(BaseModel):
+    provider: str
+    model: str | None = None
+    status: Literal["ok", "error"] = "ok"
+    error: str | None = None
+    items: list[CrossValidationClaimResult] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class CrossValidationConsensus(BaseModel):
+    claim_id: str
+    verdict: Literal["accepted", "needs_review", "rejected", "error"]
+    validators: list[str] = Field(default_factory=list)
+    supported_by: list[str] = Field(default_factory=list)
+    flagged_by: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+
+
+class CrossValidationRun(BaseModel):
+    id: str
+    providers: list[str]
+    claim_count: int
+    results: list[CrossValidationProviderResult] = Field(default_factory=list)
+    consensus: list[CrossValidationConsensus] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class IngestResult(BaseModel):
     document: Document
     text_units: list[TextUnit] = Field(default_factory=list)

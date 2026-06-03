@@ -104,6 +104,7 @@ This repository implements the first local version:
 - Deterministic `mock` LLM provider for offline development and tests.
 - Optional OpenAI provider for wiki generation, strict structured extraction, and answers.
 - Optional OpenAI Vision OCR fallback for PDF pages where native text extraction fails or times out.
+- Optional Gemini/xAI cross-validation for claim-to-evidence support checks.
 - Deterministic `mock` embedding provider and optional OpenAI embeddings.
 - PostgreSQL+pgvector storage for text units, graph records, and embeddings.
 - Evidence governance fields for claims, evidence, entities, relations, and wiki pages.
@@ -166,6 +167,7 @@ python -m llm_kg propose relation rel_123 --change change.json
 python -m llm_kg apply-plan approved-plan.json
 python -m llm_kg lint
 python -m llm_kg stats
+python -m llm_kg cross-validate --providers gemini,xai --limit 20 --output cross_validation.json
 ```
 
 Use `--json` for structured output:
@@ -194,6 +196,11 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 - `LLM_KG_OCR_MODEL`: OpenAI Vision OCR model; defaults to the configured OpenAI model.
 - `LLM_KG_OCR_MAX_PAGES`: maximum timeout/failed PDF pages to send to OCR; defaults to `25`.
 - `LLM_KG_OCR_TIMEOUT_SECONDS`: per-page OCR call timeout; defaults to `30`.
+- `GOOGLE_GEMINI_API_KEY` or `GEMINI_API_KEY`: enables Gemini claim validation.
+- `XAI_API_KEY`: enables xAI claim validation.
+- `LLM_KG_VALIDATION_PROVIDERS`: comma-separated validators; defaults to `gemini,xai`.
+- `LLM_KG_GEMINI_MODEL`: Gemini validator model; defaults to `gemini-2.5-flash`.
+- `LLM_KG_XAI_MODEL`: xAI validator model; defaults to `grok-4.3`.
 
 ## PDF OCR And Extraction Quality
 
@@ -205,6 +212,28 @@ PDF ingest first tries native text extraction with page-level timeout protection
 ```
 
 Evidence records preserve `page_number` and `source_mode`, and source wiki pages include an extraction coverage summary. `python -m llm_kg stats` reports extraction quality metrics such as PDF page coverage, OCR evidence count, claims with evidence, claims with page numbers, noisy entity ratio, and relation validity. `python -m llm_kg lint` warns when PDF evidence lacks page numbers or page coverage is low.
+
+## Multi-LLM Cross-Validation
+
+`cross-validate` uses external LLM judges to review existing LLM-KG claim/evidence pairs. It does not re-read the whole source document. Instead, it sends each extracted claim, its evidence quote, page number, and source mode to validator providers and asks:
+
+- Is the claim directly supported by the quote?
+- Is support `full`, `partial`, `unsupported`, or `unclear`?
+- Is the citation usable?
+- Is the claim a useful planning fact rather than noisy document text?
+
+Run:
+
+```bash
+python -m llm_kg cross-validate --providers gemini,xai --limit 20 --output cross_validation.json
+```
+
+The run is stored in `graph_store/cross_validation_runs.jsonl`. If `--output` is set, the same structured result is also written to that JSON file. Consensus verdicts are:
+
+- `accepted`: all successful validators fully support the claim and citation.
+- `needs_review`: validators disagree or flag citation/planning usefulness issues.
+- `rejected`: validators do not support the claim.
+- `error`: no validator completed successfully for the claim.
 
 ## Config File
 
@@ -244,6 +273,11 @@ model = ""
 max_pages = 25
 timeout_seconds = 30
 
+[validation]
+providers = "gemini,xai"
+gemini_model = "gemini-2.5-flash"
+xai_model = "grok-4.3"
+
 ```
 
 Resolution order:
@@ -254,25 +288,26 @@ Resolution order:
 4. `<workspace>/llm_kg.toml`, unless `LLM_KG_CONFIG` points elsewhere.
 5. Environment variables override matching TOML values.
 
-Do not put secrets in `llm_kg.toml`. Keep `OPENAI_API_KEY` in the environment.
+Do not put secrets in `llm_kg.toml`. Keep provider API keys in the environment.
 
 ## Storage
 
 - Raw sources are not modified.
 - Wiki pages are written to `wiki/`.
-- Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, `evidence.jsonl`, `wiki_pages.jsonl`, `reasoning_traces.jsonl`, `proposals.jsonl`, and `audit_events.jsonl`.
+- Graph records are written to `graph_store/nodes.jsonl`, `edges.jsonl`, `claims.jsonl`, `evidence.jsonl`, `wiki_pages.jsonl`, `reasoning_traces.jsonl`, `cross_validation_runs.jsonl`, `proposals.jsonl`, and `audit_events.jsonl`.
 - When configured, PostgreSQL stores `documents`, `text_units`, `wiki_pages`, `claims`, `evidence`, `entities`, `relationships`, `embeddings`, `reasoning_traces`, `ontology_schemas`, `update_proposals`, and `audit_events`.
 
 ## Python API
 
 ```python
 from pathlib import Path
-from llm_kg import ingest_source, query_knowledge, lint_workspace, verify_object, trace_object, trace_query
+from llm_kg import ingest_source, query_knowledge, lint_workspace, verify_object, trace_object, trace_query, cross_validate_claims
 
 ingest_source(Path("raw_sources/markdown/example.md"), workspace=Path("."))
 result = query_knowledge("What affects the project?", workspace=Path("."))
 verification = verify_object("claim", "claim_123", workspace=Path("."))
 trace = trace_object("claim", "claim_123", workspace=Path("."))
 query_trace = trace_query(result.trace_id, workspace=Path(".")) if result.trace_id else None
+validation = cross_validate_claims(workspace=Path("."), providers=["gemini", "xai"], limit=20)
 issues = lint_workspace(Path("."))
 ```

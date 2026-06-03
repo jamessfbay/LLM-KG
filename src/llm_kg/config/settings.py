@@ -29,6 +29,9 @@ class Settings(BaseModel):
     ocr_model: str | None = None
     ocr_max_pages: int = 25
     ocr_timeout_seconds: int = 30
+    validation_providers: str = "gemini,xai"
+    gemini_model: str = "gemini-2.5-flash"
+    xai_model: str = "grok-4.3"
 
     @classmethod
     def from_env(cls, workspace: Path | None = None) -> "Settings":
@@ -91,6 +94,15 @@ class Settings(BaseModel):
             ocr_timeout_seconds=int(
                 os.getenv("LLM_KG_OCR_TIMEOUT_SECONDS") or file_values.get("ocr_timeout_seconds") or "30"
             ),
+            validation_providers=str(
+                os.getenv("LLM_KG_VALIDATION_PROVIDERS")
+                or file_values.get("validation_providers")
+                or "gemini,xai"
+            ),
+            gemini_model=str(
+                os.getenv("LLM_KG_GEMINI_MODEL") or file_values.get("gemini_model") or "gemini-2.5-flash"
+            ),
+            xai_model=str(os.getenv("LLM_KG_XAI_MODEL") or file_values.get("xai_model") or "grok-4.3"),
         )
 
 
@@ -110,6 +122,7 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
     governance = raw.get("governance", {})
     kee = raw.get("kee", {})
     ocr = raw.get("ocr", {})
+    validation = raw.get("validation", {})
     if not isinstance(llm, dict):
         raise ValueError("[llm] must be a TOML table")
     if not isinstance(database, dict):
@@ -126,6 +139,8 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         raise ValueError("[kee] must be a TOML table")
     if not isinstance(ocr, dict):
         raise ValueError("[ocr] must be a TOML table")
+    if not isinstance(validation, dict):
+        raise ValueError("[validation] must be a TOML table")
 
     values: dict[str, object] = {}
     if "provider" in llm:
@@ -164,6 +179,12 @@ def _load_config_file(workspace: Path) -> dict[str, object]:
         values["ocr_max_pages"] = ocr["max_pages"]
     if "timeout_seconds" in ocr:
         values["ocr_timeout_seconds"] = ocr["timeout_seconds"]
+    if "providers" in validation:
+        values["validation_providers"] = validation["providers"]
+    if "gemini_model" in validation:
+        values["gemini_model"] = validation["gemini_model"]
+    if "xai_model" in validation:
+        values["xai_model"] = validation["xai_model"]
     return values
 
 

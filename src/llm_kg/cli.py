@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from llm_kg.api import (
     apply_update_plan,
     create_proposal,
+    cross_validate_claims,
     export_reasoning_trace,
     export_proposal,
     ingest_source,
@@ -39,6 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     query_parser.add_argument("question")
     query_parser.add_argument("--top-k", type=int, default=None)
     query_parser.add_argument("--mode", choices=["basic", "local"], default=None)
+
+    cross_parser = subparsers.add_parser("cross-validate", help="Validate claims with external LLM judges")
+    cross_parser.add_argument("--providers", default=None, help="Comma-separated providers, for example gemini,xai")
+    cross_parser.add_argument("--limit", type=int, default=None, help="Maximum number of claims to validate")
+    cross_parser.add_argument("--output", type=Path, default=None, help="Optional JSON output path")
 
     subparsers.add_parser("lint", help="Lint wiki and graph records")
     subparsers.add_parser("stats", help="Show workspace stats")
@@ -101,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
             text.append(f"- [{label}] score={hit.score} {hit.title or ''} {hit.path or ''}".strip())
             text.append(f"  {hit.text}")
         return _print(args.json, result, "\n".join(text).strip())
+    if args.command == "cross-validate":
+        providers = _split_csv(args.providers) if args.providers else None
+        result = cross_validate_claims(
+            workspace=workspace,
+            providers=providers,
+            limit=args.limit,
+            output_path=args.output,
+        )
+        return _print(args.json, result, _human_cross_validation(result))
     if args.command == "db":
         settings = Settings.from_env(workspace)
         postgres = build_postgres_store(settings)
@@ -199,6 +214,37 @@ def _print(as_json: bool, model: BaseModel, text: str) -> int:
 
 def read_json(path: str) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _human_cross_validation(result) -> str:
+    lines = [
+        f"Cross-validation run: {result.id}",
+        f"claims: {result.claim_count}",
+        f"providers: {', '.join(result.providers)}",
+    ]
+    for provider in result.results:
+        if provider.status == "error":
+            lines.append(f"- {provider.provider}: ERROR {provider.error}")
+            continue
+        summary = provider.summary
+        lines.append(
+            "- "
+            f"{provider.provider} ({provider.model}): "
+            f"supported={summary.get('supported_count', 0)} "
+            f"partial={summary.get('partial_count', 0)} "
+            f"unsupported={summary.get('unsupported_count', 0)} "
+            f"citation_issues={summary.get('citation_problem_count', 0)}"
+        )
+    verdict_counts: dict[str, int] = {}
+    for item in result.consensus:
+        verdict_counts[item.verdict] = verdict_counts.get(item.verdict, 0) + 1
+    if verdict_counts:
+        lines.append("consensus: " + ", ".join(f"{key}={value}" for key, value in sorted(verdict_counts.items())))
+    return "\n".join(lines)
 
 
 def _human_verification(result) -> str:

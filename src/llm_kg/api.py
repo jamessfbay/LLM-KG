@@ -20,6 +20,7 @@ from llm_kg.reasoning.answer_question import query_knowledge as _query_knowledge
 from llm_kg.reasoning.traces import export_reasoning_trace as _export_reasoning_trace
 from llm_kg.reasoning.traces import get_reasoning_trace as _get_reasoning_trace
 from llm_kg.reasoning.traces import list_reasoning_traces as _list_reasoning_traces
+from llm_kg.validation import cross_validate_claims as _cross_validate_claims
 
 
 def ingest_source(path: Path, llm: LLMClient | None = None, workspace: Path | None = None) -> IngestResult:
@@ -114,3 +115,19 @@ def apply_kee_plan(plan: dict, workspace: Path | None = None) -> ApplyResult:
 def import_kee_decision(decision: dict, workspace: Path | None = None) -> dict:
     settings = Settings.from_env(workspace)
     return _import_kee_decision(decision, settings.workspace)
+
+
+def cross_validate_claims(
+    workspace: Path | None = None,
+    providers: list[str] | None = None,
+    limit: int | None = None,
+    output_path: Path | None = None,
+):
+    settings = Settings.from_env(workspace)
+    return _cross_validate_claims(
+        settings.workspace,
+        providers=providers,
+        limit=limit,
+        output_path=output_path,
+        settings=settings,
+    )
