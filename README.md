@@ -95,9 +95,9 @@ Example questions:
 
 An internal agent can use LLM-KG as long-term memory for product, research, operations, or due diligence workflows. Good answers can later be written back as synthesis pages or graph records, turning one-off analysis into reusable knowledge.
 
-## Current MVP
+## Current Capabilities
 
-This repository implements the first local version:
+This repository implements the local evidence-governed knowledge graph runtime:
 
 - Source readers for `.txt`, `.md`, `.docx`, and `.pdf`.
 - Pydantic models for documents, text units, wiki pages, claims, evidence, entities, relations, embeddings, query hits, and lint issues.
@@ -117,7 +117,7 @@ This repository implements the first local version:
 - JSONL graph output in `graph_store/`.
 - CLI commands for ingest, query, lint, stats, and database migration/status.
 
-This is a GraphRAG-inspired Local+Vector MVP. It implements chunking, extraction, embeddings, basic vector RAG, and local entity-aware retrieval. It does not yet implement community detection, global search, or DRIFT search.
+This is a GraphRAG-inspired Local+Vector implementation. It supports chunking, extraction, embeddings, basic vector RAG, and local entity-aware retrieval. Community detection, global search, and DRIFT search are reserved for later expansion.
 
 The default LLM provider is deterministic `mock`, so the project can run offline. Set `LLM_KG_PROVIDER=openai` and `OPENAI_API_KEY` to use OpenAI.
 
