@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 from llm_kg.config import Settings
 from llm_kg.embeddings import EmbeddingClient, build_embedding_client
 from llm_kg.llm import LLMClient
 from llm_kg.governance import create_proposal
-from llm_kg.models import Claim, Document, EmbeddingRecord, Entity, Evidence, IngestResult, Relation, TextUnit, WikiPage
+from llm_kg.models import AuditEvent, Claim, Document, EmbeddingRecord, Entity, Evidence, IngestResult, Relation, TextUnit, WikiPage
 from llm_kg.models.core import utc_now
 from llm_kg.ontology import build_ontology_registry
 from llm_kg.pipeline.chunking import chunk_document
@@ -25,6 +27,10 @@ def ingest_source(
 ) -> IngestResult:
     workspace = workspace.resolve()
     settings = settings or Settings.from_env(workspace)
+    if path.suffix.lower() == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("format") == "llm-kg-import":
+            return ingest_import_payload(path, payload, workspace, settings=settings)
     document = read_source(path, settings=settings)
     jsonl = JsonlStore(workspace)
     source_update_proposals = _source_update_proposals(document, jsonl, workspace)
@@ -96,6 +102,147 @@ def ingest_source(
         entities=entities,
         relations=relations,
         proposals=proposals,
+    )
+
+
+def ingest_import_payload(
+    path: Path,
+    payload: dict[str, Any],
+    workspace: Path,
+    settings: Settings | None = None,
+) -> IngestResult:
+    workspace = workspace.resolve()
+    settings = settings or Settings.from_env(workspace)
+    request_id = str(payload.get("request_id") or path.stem)
+    documents = [Document.model_validate(item) for item in payload.get("documents", [])]
+    claims = [Claim.model_validate(item) for item in payload.get("claims", []) if item.get("id")]
+    evidence = [Evidence.model_validate(item) for item in payload.get("evidence", []) if item.get("id")]
+    source_document = _import_summary_document(path, request_id, payload)
+    wiki_page = _import_summary_wiki_page(request_id, source_document, documents, claims, evidence, payload)
+
+    jsonl = JsonlStore(workspace)
+    markdown_store = MarkdownStore(workspace)
+    markdown_store.save_page(wiki_page)
+    markdown_store.update_index()
+    markdown_store.append_log(
+        f"ingested LLM-CLAW import `{path}` as `{wiki_page.path}` with "
+        f"{len(documents)} documents, {len(claims)} claims, {len(evidence)} evidence records"
+    )
+
+    jsonl.upsert("documents.jsonl", [source_document, *documents])
+    jsonl.upsert("wiki_pages.jsonl", [wiki_page])
+    if claims:
+        jsonl.upsert("claims.jsonl", claims)
+    if evidence:
+        jsonl.upsert("evidence.jsonl", evidence)
+    jsonl.upsert(
+        "audit_events.jsonl",
+        [
+            AuditEvent(
+                id=stable_id("audit", f"llm-claw-import:{request_id}"),
+                event_type="create",
+                target_type="llm_claw_import",
+                target_id=request_id,
+                source="llm-claw",
+                after={
+                    "documents": len(documents),
+                    "claims": len(claims),
+                    "evidence": len(evidence),
+                    "missing_data": payload.get("missing_data", []),
+                    "recommended_next_actions": payload.get("recommended_next_actions", []),
+                },
+            )
+        ],
+    )
+
+    postgres = build_postgres_store(settings)
+    if postgres:
+        postgres.upsert_ingest(
+            document=source_document,
+            text_units=[],
+            wiki_pages=[wiki_page],
+            claims=claims,
+            evidence=evidence,
+            entities=[],
+            relations=[],
+            embeddings=[],
+        )
+
+    return IngestResult(
+        document=source_document,
+        text_units=[],
+        wiki_page=wiki_page,
+        wiki_pages=[wiki_page],
+        claims=claims,
+        evidence=evidence,
+        entities=[],
+        relations=[],
+        proposals=[],
+    )
+
+
+def _import_summary_document(path: Path, request_id: str, payload: dict[str, Any]) -> Document:
+    content = json.dumps(
+        {
+            "format": payload.get("format"),
+            "request_id": request_id,
+            "documents": len(payload.get("documents", [])),
+            "claims": len(payload.get("claims", [])),
+            "evidence": len(payload.get("evidence", [])),
+            "missing_data": payload.get("missing_data", []),
+            "recommended_next_actions": payload.get("recommended_next_actions", []),
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    return Document(
+        id=stable_id("doc", f"llm-claw-import:{request_id}"),
+        title=f"LLM-CLAW Evidence Import {request_id}",
+        source_path=str(path),
+        source_type="txt",
+        content=content,
+        hash=stable_id("hash", content),
+        metadata={"format": "llm-kg-import", "request_id": request_id},
+    )
+
+
+def _import_summary_wiki_page(
+    request_id: str,
+    document: Document,
+    documents: list[Document],
+    claims: list[Claim],
+    evidence: list[Evidence],
+    payload: dict[str, Any],
+) -> WikiPage:
+    missing = payload.get("missing_data", [])
+    actions = payload.get("recommended_next_actions", [])
+    lines = [
+        f"# LLM-CLAW Evidence Import {request_id}",
+        "",
+        f"source_id: `{document.id}`",
+        "",
+        "## Import Summary",
+        "",
+        f"- Documents: {len(documents)}",
+        f"- Claims: {len(claims)}",
+        f"- Evidence records: {len(evidence)}",
+        f"- Missing data: {len(missing) if isinstance(missing, list) else 0}",
+        f"- Recommended next actions: {len(actions) if isinstance(actions, list) else 0}",
+    ]
+    if missing:
+        lines.extend(["", "## Missing Data", ""])
+        lines.extend(f"- {item}" for item in missing)
+    if actions:
+        lines.extend(["", "## Recommended Next Actions", ""])
+        lines.extend(f"- {item}" for item in actions)
+    return WikiPage(
+        id=stable_id("wiki", f"llm-claw-import:{request_id}"),
+        title=f"LLM-CLAW Evidence Import {request_id}",
+        page_type="source",
+        path=f"wiki/sources/llm-claw-import-{request_id}.md",
+        content_md="\n".join(lines) + "\n",
+        source_ids=[document.id, *(item.id for item in documents)],
+        tags=["llm-claw-import"],
     )
 
 
