@@ -278,6 +278,9 @@ class CrossValidationRun(BaseModel):
 
 
 class IngestResult(BaseModel):
+    ingest_status: Literal["ingested", "empty_import"] = "ingested"
+    source_format: str | None = None
+    request_id: str | None = None
     document: Document
     text_units: list[TextUnit] = Field(default_factory=list)
     wiki_page: WikiPage

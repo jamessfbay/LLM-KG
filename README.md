@@ -176,6 +176,8 @@ Use `--json` for structured output:
 python -m llm_kg --json query "What evidence mentions SB 330?"
 ```
 
+CLAW `llm-kg-import` payloads return `ingest_status: ingested` only when both claims and evidence are present. Empty structured imports return `ingest_status: empty_import`, allowing decision runtimes to keep the case blocked instead of treating an empty write as verified knowledge.
+
 ## Environment
 
 - `LLM_KG_WORKSPACE`: workspace path; defaults to current directory.

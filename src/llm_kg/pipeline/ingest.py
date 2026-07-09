@@ -169,6 +169,9 @@ def ingest_import_payload(
         )
 
     return IngestResult(
+        ingest_status="ingested" if claims and evidence else "empty_import",
+        source_format="llm-kg-import",
+        request_id=request_id,
         document=source_document,
         text_units=[],
         wiki_page=wiki_page,

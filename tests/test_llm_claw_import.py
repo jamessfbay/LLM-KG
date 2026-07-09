@@ -56,6 +56,9 @@ def test_ingest_llm_claw_import_json_writes_graph_records(tmp_path: Path) -> Non
     result = ingest_source(source, workspace=tmp_path)
     store = JsonlStore(tmp_path)
 
+    assert result.ingest_status == "ingested"
+    assert result.source_format == "llm-kg-import"
+    assert result.request_id == "task_demo"
     assert result.document.title == "LLM-CLAW Evidence Import task_demo"
     assert result.claims[0].id == "claim_demo"
     assert result.evidence[0].id == "ev_demo"
@@ -74,3 +77,28 @@ def test_cli_ingest_llm_claw_import_json(tmp_path: Path, capsys) -> None:
 
     assert output["claims"][0]["id"] == "claim_demo"
     assert output["evidence"][0]["id"] == "ev_demo"
+    assert output["ingest_status"] == "ingested"
+
+
+def test_empty_claw_import_is_explicitly_insufficient(tmp_path: Path) -> None:
+    source = tmp_path / "empty_import.json"
+    source.write_text(
+        json.dumps(
+            {
+                "format": "llm-kg-import",
+                "request_id": "task_empty",
+                "documents": [],
+                "claims": [],
+                "evidence": [],
+                "missing_data": ["No verified raw-source evidence found."],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = ingest_source(source, workspace=tmp_path)
+
+    assert result.ingest_status == "empty_import"
+    assert result.request_id == "task_empty"
+    assert result.claims == []
+    assert result.evidence == []
