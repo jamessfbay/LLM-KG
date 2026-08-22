@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from pydantic import BaseModel
@@ -25,12 +26,17 @@ from llm_kg.api import (
 from llm_kg.config import Settings
 from llm_kg.models import Claim, Document, Entity, Evidence, Relation
 from llm_kg.storage import JsonlStore, MarkdownStore, build_postgres_store
+from llm_kg.reasoning.traces import save_reasoning_trace
+from llm_kg.runtime_protocol import OperationReceiptStore, RuntimeEmitter, RuntimeError, load_runtime_command
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="llm-kg", description="LLM-KG Markdown + JSONL MVP")
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="Workspace directory")
     parser.add_argument("--json", action="store_true", help="Print JSON output")
+    parser.add_argument("--event-stream", action="store_true", help="Emit RuntimeEvent v1 NDJSON")
+    parser.add_argument("--runtime-context", help="Path to a RuntimeCommand v1 JSON file")
+    parser.add_argument("--idempotency-key", help="Override the RuntimeCommand idempotency key")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a source file")
@@ -86,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
+
+    if args.event_stream:
+        return _run_streamed_command(args, workspace)
 
     if args.command == "ingest":
         result = ingest_source(args.path, workspace=workspace)
@@ -210,6 +219,96 @@ def _print(as_json: bool, model: BaseModel, text: str) -> int:
     else:
         print(text)
     return 0
+
+
+def _run_streamed_command(args, workspace: Path) -> int:
+    command = load_runtime_command(args.runtime_context)
+    if command is None:
+        raise ValueError("--runtime-context is required with --event-stream")
+    if args.idempotency_key:
+        command.idempotency_key = args.idempotency_key
+    if command.engine != "llm-kg":
+        raise ValueError(f"Runtime command engine mismatch: {command.engine}")
+    emitter = RuntimeEmitter(command, sys.stdout)
+    receipts = OperationReceiptStore(workspace, ".llm_kg")
+    receipt = receipts.begin(command)
+    if receipt.status in {"succeeded", "insufficient"}:
+        emitter.emit("step.completed", receipt.status, references=_runtime_references(receipt.output), payload={"replayed": True})
+        return 0
+    emitter.emit("step.started", "running", payload={"command": args.command})
+    try:
+        output, status = _execute_runtime_command(args, workspace, command)
+        receipts.complete(receipt, status, output)
+        if output.get("artifact_path"):
+            emitter.emit("artifact.created", status, references=_runtime_references(output))
+        emitter.emit("step.completed", status, references=_runtime_references(output), payload=_runtime_counts(output))
+        return 0
+    except KeyboardInterrupt:
+        receipts.interrupt(receipt, "LLM-KG operation interrupted")
+        emitter.emit("step.failed", "interrupted", error=RuntimeError(code="interrupted", message="LLM-KG operation interrupted", retryable=True))
+        return 130
+    except Exception as exc:
+        receipts.complete(receipt, "failed", {"error": str(exc)})
+        emitter.emit("step.failed", "failed", error=RuntimeError(code="kg_failed", message=str(exc), retryable=True))
+        return 1
+
+
+def _execute_runtime_command(args, workspace: Path, command) -> tuple[dict[str, Any], str]:
+    if args.command == "ingest":
+        result = ingest_source(args.path, workspace=workspace)
+        output = {
+            "ingest_status": result.ingest_status,
+            "request_id": result.request_id or "",
+            "document_ids": [result.document.id],
+            "claim_ids": [item.id for item in result.claims],
+            "evidence_ids": [item.id for item in result.evidence],
+            "entity_ids": [item.id for item in result.entities],
+            "relation_ids": [item.id for item in result.relations],
+        }
+        status = "insufficient" if result.ingest_status == "empty_import" or not result.claims or not result.evidence else "succeeded"
+        return output, status
+    if args.command == "query":
+        settings = Settings.from_env(workspace)
+        result = query_knowledge(args.question, workspace=workspace, top_k=args.top_k or settings.top_k, mode=args.mode or settings.query_default_mode)
+        trace = trace_query(result.trace_id, workspace=workspace) if result.trace_id else None
+        if trace:
+            trace.correlation_id = command.correlation_id
+            trace.decision_id = command.decision_id
+            trace.run_id = command.run_id
+            trace.step_id = command.step_id
+            trace.import_request_id = str(command.input.get("import_request_id") or "") or None
+            trace.input_claim_ids = [str(item) for item in command.input.get("claim_ids", [])]
+            trace.input_evidence_ids = [str(item) for item in command.input.get("evidence_ids", [])]
+            trace.evidence_snapshot_hash = str(command.input.get("evidence_snapshot_hash") or "") or None
+            save_reasoning_trace(trace, workspace)
+        output = {
+            "trace_id": result.trace_id or "",
+            "claim_ids": trace.used_claim_ids if trace else [],
+            "evidence_ids": trace.used_evidence_ids if trace else [],
+            "relation_ids": trace.used_relation_ids if trace else [],
+        }
+        status = "succeeded" if output["trace_id"] and output["claim_ids"] and output["evidence_ids"] else "insufficient"
+        return output, status
+    if args.command == "verify":
+        result = verify_claim(args.target_id, workspace=workspace) if args.verify_type == "claim" else verify_object(args.verify_type, args.target_id, workspace=workspace)
+        return {"target_id": args.target_id, "evidence_ids": [item.id for item in result.evidence], "valid": result.valid}, "succeeded" if result.valid and result.evidence else "insufficient"
+    if args.command == "trace":
+        result = trace_query(args.target_id, workspace=workspace) if args.target_type == "query" else trace_object(args.target_type, args.target_id, workspace=workspace)
+        if args.target_type == "query":
+            return {"trace_id": result.id, "claim_ids": result.used_claim_ids, "evidence_ids": result.used_evidence_ids, "relation_ids": result.used_relation_ids}, "succeeded" if result.used_claim_ids and result.used_evidence_ids else "insufficient"
+        return {"target_id": args.target_id, "node_ids": [item.id for item in result.nodes], "gap_count": len(result.gaps)}, "succeeded" if result.nodes and not result.gaps else "insufficient"
+    if args.command == "traces" and args.traces_command == "export":
+        payload = export_reasoning_trace(args.trace_id, workspace=workspace, export_format=args.format)
+        return {"trace_id": args.trace_id, "signal_ids": [str(item.get("id")) for item in payload.get("signals", []) if isinstance(item, dict)]}, "succeeded"
+    raise ValueError(f"Runtime event streaming is not supported for command: {args.command}")
+
+
+def _runtime_references(output: dict[str, Any]) -> dict[str, str | list[str]]:
+    return {key: value for key, value in output.items() if isinstance(value, str) or (isinstance(value, list) and all(isinstance(item, str) for item in value))}
+
+
+def _runtime_counts(output: dict[str, Any]) -> dict[str, Any]:
+    return {f"{key[:-4]}_count": len(value) for key, value in output.items() if key.endswith("_ids") and isinstance(value, list)}
 
 
 def read_json(path: str) -> dict[str, Any]:

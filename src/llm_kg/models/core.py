@@ -218,6 +218,14 @@ class ReasoningStep(BaseModel):
 
 class ReasoningTrace(BaseModel):
     id: str
+    correlation_id: str | None = None
+    decision_id: str | None = None
+    run_id: str | None = None
+    step_id: str | None = None
+    import_request_id: str | None = None
+    input_claim_ids: list[str] = Field(default_factory=list)
+    input_evidence_ids: list[str] = Field(default_factory=list)
+    evidence_snapshot_hash: str | None = None
     question: str
     answer: str
     mode: Literal["basic", "local"] = "local"

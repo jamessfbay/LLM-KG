@@ -178,6 +178,12 @@ python -m llm_kg --json query "What evidence mentions SB 330?"
 
 CLAW `llm-kg-import` payloads return `ingest_status: ingested` only when both claims and evidence are present. Empty structured imports return `ingest_status: empty_import`, allowing decision runtimes to keep the case blocked instead of treating an empty write as verified knowledge.
 
+### NOX Runtime Protocol
+
+Ingest, query, verify, trace and reasoning-trace export can emit NOX RuntimeEvent v1 NDJSON by passing global `--event-stream --runtime-context runtime-command.json` options. Operation receipts under `.llm_kg/operations/` prevent duplicate ingest and trace creation on retry.
+
+Reasoning traces may carry decision/run/step IDs, import request ID, input claim/evidence IDs and evidence snapshot hash. NOX uses these fields to reject traces unrelated to the current decision import.
+
 ## Environment
 
 - `LLM_KG_WORKSPACE`: workspace path; defaults to current directory.
