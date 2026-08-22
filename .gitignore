@@ -9,3 +9,4 @@ __pycache__/
 tmp/
 graph_store/
 wiki/
+.llm_kg/
