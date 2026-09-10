@@ -9,6 +9,7 @@ from llm_kg.models import (
     ApplyResult,
     AuditEvent,
     Claim,
+    Document,
     Entity,
     Evidence,
     Relation,
@@ -116,6 +117,15 @@ def verify_object(target_type: str, target_id: str, workspace: Path) -> Verifica
             issues.append(VerificationIssue(code="evidence_missing_source", message="Evidence has no source ID.", severity="error"))
         if not item.quote.strip():
             issues.append(VerificationIssue(code="evidence_missing_quote", message="Evidence quote is empty.", severity="error"))
+        document = _get_document(item.source_id, workspace, settings)
+        if document is None:
+            issues.append(VerificationIssue(code="evidence_missing_document", message="Evidence source document was not found.", severity="error"))
+        elif item.source_content_hash != document.hash:
+            issues.append(VerificationIssue(code="evidence_hash_mismatch", message="Evidence hash does not match its source document.", severity="error"))
+        elif item.quote_start is None or item.quote_end is None:
+            issues.append(VerificationIssue(code="evidence_missing_span", message="Evidence quote has no exact source span.", severity="error"))
+        elif document.content[item.quote_start:item.quote_end] != item.quote:
+            issues.append(VerificationIssue(code="evidence_quote_mismatch", message="Evidence quote does not match its source span.", severity="error"))
         return VerificationResult(
             target_type=target_type,
             target_id=target_id,
@@ -343,6 +353,18 @@ def _get_claim(claim_id: str, workspace: Path, settings: Settings) -> Claim | No
         if claim:
             return claim
     return next((claim for claim in JsonlStore(workspace).load("claims.jsonl", Claim) if claim.id == claim_id), None)
+
+
+def _get_document(document_id: str, workspace: Path, settings: Settings) -> Document | None:
+    postgres = build_postgres_store(settings)
+    if postgres:
+        document = postgres.get_document(document_id)
+        if document:
+            return document
+    return next(
+        (document for document in JsonlStore(workspace).load("documents.jsonl", Document) if document.id == document_id),
+        None,
+    )
 
 
 def _get_evidence_many(evidence_ids: list[str], workspace: Path, settings: Settings) -> list[Evidence]:

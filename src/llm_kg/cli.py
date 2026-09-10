@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from llm_kg.api import (
     apply_update_plan,
+    build_context_bundle,
     create_proposal,
     cross_validate_claims,
     export_reasoning_trace,
@@ -24,9 +25,10 @@ from llm_kg.api import (
     verify_object,
 )
 from llm_kg.config import Settings
-from llm_kg.models import Claim, Document, Entity, Evidence, Relation
+from llm_kg.llm import build_llm_client
+from llm_kg.models import Claim, Document, Entity, Evidence, QueryHit, QueryResult, Relation
 from llm_kg.storage import JsonlStore, MarkdownStore, build_postgres_store
-from llm_kg.reasoning.traces import save_reasoning_trace
+from llm_kg.reasoning.traces import build_reasoning_trace, save_reasoning_trace
 from llm_kg.runtime_protocol import OperationReceiptStore, RuntimeEmitter, RuntimeError, load_runtime_command
 
 
@@ -46,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     query_parser.add_argument("question")
     query_parser.add_argument("--top-k", type=int, default=None)
     query_parser.add_argument("--mode", choices=["basic", "local"], default=None)
+
+    context_parser = subparsers.add_parser("context", help="Build governed decision context without an LLM answer")
+    context_parser.add_argument("question")
+    context_parser.add_argument("--top-k", type=int, default=5)
 
     cross_parser = subparsers.add_parser("cross-validate", help="Validate claims with external LLM judges")
     cross_parser.add_argument("--providers", default=None, help="Comma-separated providers, for example gemini,xai")
@@ -116,6 +122,13 @@ def main(argv: list[str] | None = None) -> int:
             text.append(f"- [{label}] score={hit.score} {hit.title or ''} {hit.path or ''}".strip())
             text.append(f"  {hit.text}")
         return _print(args.json, result, "\n".join(text).strip())
+    if args.command == "context":
+        result = build_context_bundle(args.question, workspace=workspace, top_k=args.top_k)
+        return _print(
+            args.json,
+            result,
+            f"Context facts: {len(result.facts)}; unknowns: {len(result.unknowns)}",
+        )
     if args.command == "cross-validate":
         providers = _split_csv(args.providers) if args.providers else None
         result = cross_validate_claims(
@@ -269,7 +282,20 @@ def _execute_runtime_command(args, workspace: Path, command) -> tuple[dict[str, 
         return output, status
     if args.command == "query":
         settings = Settings.from_env(workspace)
-        result = query_knowledge(args.question, workspace=workspace, top_k=args.top_k or settings.top_k, mode=args.mode or settings.query_default_mode)
+        scoped_claim_ids = [str(item) for item in command.input.get("claim_ids", [])]
+        scoped_evidence_ids = [str(item) for item in command.input.get("evidence_ids", [])]
+        result = (
+            _query_import_scope(
+                args.question,
+                workspace,
+                top_k=args.top_k or settings.top_k,
+                mode=args.mode or settings.query_default_mode,
+                claim_ids=scoped_claim_ids,
+                evidence_ids=scoped_evidence_ids,
+            )
+            if scoped_claim_ids or scoped_evidence_ids
+            else query_knowledge(args.question, workspace=workspace, top_k=args.top_k or settings.top_k, mode=args.mode or settings.query_default_mode)
+        )
         trace = trace_query(result.trace_id, workspace=workspace) if result.trace_id else None
         if trace:
             trace.correlation_id = command.correlation_id
@@ -301,6 +327,58 @@ def _execute_runtime_command(args, workspace: Path, command) -> tuple[dict[str, 
         payload = export_reasoning_trace(args.trace_id, workspace=workspace, export_format=args.format)
         return {"trace_id": args.trace_id, "signal_ids": [str(item.get("id")) for item in payload.get("signals", []) if isinstance(item, dict)]}, "succeeded"
     raise ValueError(f"Runtime event streaming is not supported for command: {args.command}")
+
+
+def _query_import_scope(
+    question: str,
+    workspace: Path,
+    *,
+    top_k: int,
+    mode: str,
+    claim_ids: list[str],
+    evidence_ids: list[str],
+) -> QueryResult:
+    store = JsonlStore(workspace)
+    claims_by_id = {item.id: item for item in store.load("claims.jsonl", Claim)}
+    evidence_by_id = {item.id: item for item in store.load("evidence.jsonl", Evidence)}
+    available_claims = [claims_by_id[item_id] for item_id in claim_ids if item_id in claims_by_id]
+    selected_claims: list[Claim] = []
+    selected_claim_ids: set[str] = set()
+    seen_source_ids: set[str] = set()
+    for claim in available_claims:
+        if len(selected_claims) >= top_k:
+            break
+        if not claim.source_ids or any(source_id not in seen_source_ids for source_id in claim.source_ids):
+            selected_claims.append(claim)
+            selected_claim_ids.add(claim.id)
+            seen_source_ids.update(claim.source_ids)
+    for claim in available_claims:
+        if len(selected_claims) >= top_k:
+            break
+        if claim.id not in selected_claim_ids:
+            selected_claims.append(claim)
+            selected_claim_ids.add(claim.id)
+    selected_evidence_ids = list(dict.fromkeys([
+        *(evidence_id for claim in selected_claims for evidence_id in claim.evidence_ids),
+        *evidence_ids,
+    ]))
+    selected_evidence = [evidence_by_id[item_id] for item_id in selected_evidence_ids if item_id in evidence_by_id][: top_k * 3]
+    if not selected_claims and not selected_evidence:
+        return QueryResult(question=question, mode=mode, answer="No records from the requested import scope were found.", hits=[], evidence=[])
+    hits = [
+        QueryHit(kind="claim", id=claim.id, text=claim.text, score=claim.confidence, evidence_ids=claim.evidence_ids)
+        for claim in selected_claims
+    ] + [
+        QueryHit(kind="evidence", id=evidence.id, text=evidence.quote, score=evidence.confidence, evidence_ids=[evidence.id])
+        for evidence in selected_evidence
+    ]
+    context = "\n\n".join(
+        f"[{hit.kind}:{hit.id}] {hit.text}\nEvidence: {', '.join(hit.evidence_ids)}"
+        for hit in hits
+    )
+    answer = build_llm_client(Settings.from_env(workspace)).answer_question(question, context, mode=mode)
+    trace = save_reasoning_trace(build_reasoning_trace(question, answer, mode, hits), workspace)
+    return QueryResult(question=question, mode=mode, answer=answer, hits=hits, evidence=selected_evidence, trace_id=trace.id)
 
 
 def _runtime_references(output: dict[str, Any]) -> dict[str, str | list[str]]:

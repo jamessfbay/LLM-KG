@@ -1,5 +1,9 @@
 # LLM-KG (knowledge graph)
 
+When used with NOX, LLM-KG is a context provider only. The `context` command
+emits `context-bundle/2.0` from governed, immutable evidence and never promotes
+a generated answer to a fact.
+
 LLM-KG is a persistent reasoning layer for AI agents. It turns raw documents into an inspectable LLM Wiki, then compiles that wiki into a lightweight knowledge graph made of claims, evidence, entities, and typed relations.
 
 The goal is not just to summarize documents. The goal is to make knowledge reusable, traceable, and computable across future agent workflows.

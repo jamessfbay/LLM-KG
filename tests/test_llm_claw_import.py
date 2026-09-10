@@ -30,6 +30,9 @@ def _payload() -> dict:
                 "url": "https://example.test/staff-report",
                 "source_mode": "native_text",
                 "confidence": 0.91,
+                "source_content_hash": "hash_demo",
+                "quote_start": 0,
+                "quote_end": 33,
                 "review_state": "auto_accepted",
             }
         ],

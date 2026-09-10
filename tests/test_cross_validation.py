@@ -71,3 +71,18 @@ def test_cross_validate_claims_builds_consensus_and_persists(tmp_path: Path) -> 
     assert result.consensus[0].supported_by == ["gemini", "xai"]
     assert store.load("cross_validation_runs.jsonl", type(result))[0].id == result.id
     assert (tmp_path / "cross_validation.json").exists()
+
+
+def test_one_successful_model_cannot_create_accepted_consensus(tmp_path: Path) -> None:
+    store = JsonlStore(tmp_path)
+    store.upsert("evidence.jsonl", [Evidence(id="ev", source_id="doc", quote="A", confidence=1)])
+    store.upsert("claims.jsonl", [Claim(id="claim", text="A", evidence_ids=["ev"], confidence=1)])
+
+    result = cross_validate_claims(
+        tmp_path,
+        providers=["gemini", "missing"],
+        validators={"gemini": FakeValidator("gemini")},
+    )
+
+    assert result.consensus[0].verdict == "needs_review"
+    assert any("two independent" in issue for issue in result.consensus[0].issues)

@@ -70,6 +70,11 @@ class Evidence(GovernanceFields):
     section: str | None = None
     source_mode: Literal["native_text", "ocr_text", "timeout_placeholder", "failed_placeholder", "unknown"] = "unknown"
     confidence: float = Field(ge=0.0, le=1.0)
+    source_content_hash: str | None = None
+    quote_start: int | None = Field(default=None, ge=0)
+    quote_end: int | None = Field(default=None, ge=0)
+    observed_at: datetime | None = None
+    extractor_version: str | None = None
 
 
 class Claim(GovernanceFields):
@@ -83,6 +88,10 @@ class Claim(GovernanceFields):
     confidence: float = Field(ge=0.0, le=1.0)
     status: Literal["active", "uncertain", "contradicted", "outdated"] = "active"
     created_at: datetime = Field(default_factory=utc_now)
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    conflicts_with: list[str] = Field(default_factory=list)
 
 
 class Entity(GovernanceFields):
@@ -248,6 +257,30 @@ class QueryResult(BaseModel):
     trace_id: str | None = None
 
 
+class ContextFact(BaseModel):
+    id: str
+    key: str
+    value: Any
+    source_id: str
+    source_content_hash: str
+    source_version: int = Field(ge=1)
+    evidence_ids: list[str] = Field(min_length=1)
+    observed_at: datetime
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    conflicts_with: list[str] = Field(default_factory=list)
+
+
+class ContextBundle(BaseModel):
+    contract_version: Literal["context-bundle/2.0"] = "context-bundle/2.0"
+    capability_role: Literal["context_provider"] = "context_provider"
+    query: str
+    captured_at: datetime = Field(default_factory=utc_now)
+    facts: list[ContextFact] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    generated_answer: None = None
+
+
 class CrossValidationClaimResult(BaseModel):
     claim_id: str
     supported: bool
@@ -259,8 +292,12 @@ class CrossValidationClaimResult(BaseModel):
 
 
 class CrossValidationProviderResult(BaseModel):
+    contract_version: str = "model-review/2.0"
+    authority: Literal["advisory"] = "advisory"
     provider: str
     model: str | None = None
+    prompt_version: str = "claim-support-review/2"
+    usage: dict[str, int] | None = None
     status: Literal["ok", "error"] = "ok"
     error: str | None = None
     items: list[CrossValidationClaimResult] = Field(default_factory=list)
@@ -268,6 +305,7 @@ class CrossValidationProviderResult(BaseModel):
 
 
 class CrossValidationConsensus(BaseModel):
+    authority: Literal["advisory_model_consensus"] = "advisory_model_consensus"
     claim_id: str
     verdict: Literal["accepted", "needs_review", "rejected", "error"]
     validators: list[str] = Field(default_factory=list)

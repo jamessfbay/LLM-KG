@@ -178,7 +178,12 @@ class GeminiClaimValidator:
         }
         data = _post_json(url, {"x-goog-api-key": key, "Content-Type": "application/json"}, payload)
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return _provider_result(self.provider, self.model, text)
+        usage = data.get("usageMetadata") or {}
+        return _provider_result(self.provider, self.model, text, {
+            "input_tokens": int(usage.get("promptTokenCount") or 0),
+            "output_tokens": int(usage.get("candidatesTokenCount") or 0),
+            "total_tokens": int(usage.get("totalTokenCount") or 0),
+        } if usage else None)
 
 
 class XAIClaimValidator:
@@ -203,15 +208,21 @@ class XAIClaimValidator:
             payload,
         )
         text = data["choices"][0]["message"]["content"]
-        return _provider_result(self.provider, self.model, text)
+        usage = data.get("usage") or {}
+        return _provider_result(self.provider, self.model, text, {
+            "input_tokens": int(usage.get("prompt_tokens") or 0),
+            "output_tokens": int(usage.get("completion_tokens") or 0),
+            "total_tokens": int(usage.get("total_tokens") or 0),
+        } if usage else None)
 
 
-def _provider_result(provider: str, model: str, text: str) -> CrossValidationProviderResult:
+def _provider_result(provider: str, model: str, text: str, usage: dict[str, int] | None = None) -> CrossValidationProviderResult:
     parsed = _extract_json(text)
     return CrossValidationProviderResult(
         provider=provider,
         model=model,
         status="ok",
+        usage=usage,
         items=[CrossValidationClaimResult.model_validate(item) for item in parsed.get("items", [])],
         summary=parsed.get("summary", {}),
     )
@@ -273,8 +284,11 @@ def _build_consensus(
             verdict = "error"
         elif flagged_by:
             verdict = "needs_review" if supported_by else "rejected"
-        elif validators and len(supported_by) == len(validators):
+        elif len(validators) >= 2 and len(supported_by) == len(validators):
             verdict = "accepted"
+        elif validators and len(supported_by) == len(validators):
+            verdict = "needs_review"
+            issues.append("At least two independent successful validators are required for consensus")
         else:
             verdict = "needs_review"
         consensus.append(

@@ -117,6 +117,20 @@ def ingest_import_payload(
     documents = [Document.model_validate(item) for item in payload.get("documents", [])]
     claims = [Claim.model_validate(item) for item in payload.get("claims", []) if item.get("id")]
     evidence = [Evidence.model_validate(item) for item in payload.get("evidence", []) if item.get("id")]
+    documents_by_id = {item.id: item for item in documents}
+    accepted_evidence_ids: set[str] = set()
+    for item in evidence:
+        document = documents_by_id.get(item.source_id)
+        if _has_valid_source_binding(item, document):
+            item.source_content_hash = item.source_content_hash or document.hash
+            accepted_evidence_ids.add(item.id)
+        else:
+            item.review_state = "pending_review"
+            item.governance_notes = "Imported evidence lacks a valid immutable exact-quote binding."
+    for claim in claims:
+        if not claim.evidence_ids or any(item not in accepted_evidence_ids for item in claim.evidence_ids):
+            claim.review_state = "pending_review"
+            claim.status = "uncertain"
     source_document = _import_summary_document(path, request_id, payload)
     wiki_page = _import_summary_wiki_page(request_id, source_document, documents, claims, evidence, payload)
 
@@ -182,6 +196,18 @@ def ingest_import_payload(
         relations=[],
         proposals=[],
     )
+
+
+def _has_valid_source_binding(evidence: Evidence, document: Document | None) -> bool:
+    if document is None or not evidence.quote.strip():
+        return False
+    if evidence.source_content_hash and evidence.source_content_hash != document.hash:
+        return False
+    if evidence.quote_start is not None or evidence.quote_end is not None:
+        if evidence.quote_start is None or evidence.quote_end is None:
+            return False
+        return document.content[evidence.quote_start:evidence.quote_end] == evidence.quote
+    return evidence.quote in document.content
 
 
 def _import_summary_document(path: Path, request_id: str, payload: dict[str, Any]) -> Document:

@@ -193,9 +193,10 @@ class PostgresStore:
                         """
                         INSERT INTO evidence
                           (id, source_id, quote, page_number, url, section, source_mode, confidence,
+                           source_content_hash, quote_start, quote_end, observed_at, extractor_version,
                            review_state, version, created_by, updated_by, updated_at, supersedes_id,
                            superseded_by_id, governance_notes)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (id) DO UPDATE SET
                           quote=EXCLUDED.quote,
                           page_number=EXCLUDED.page_number,
@@ -203,6 +204,11 @@ class PostgresStore:
                           section=EXCLUDED.section,
                           source_mode=EXCLUDED.source_mode,
                           confidence=EXCLUDED.confidence,
+                          source_content_hash=EXCLUDED.source_content_hash,
+                          quote_start=EXCLUDED.quote_start,
+                          quote_end=EXCLUDED.quote_end,
+                          observed_at=EXCLUDED.observed_at,
+                          extractor_version=EXCLUDED.extractor_version,
                           review_state=EXCLUDED.review_state,
                           version=EXCLUDED.version,
                           updated_by=EXCLUDED.updated_by,
@@ -220,6 +226,11 @@ class PostgresStore:
                             item.section,
                             item.source_mode,
                             item.confidence,
+                            item.source_content_hash,
+                            item.quote_start,
+                            item.quote_end,
+                            item.observed_at,
+                            item.extractor_version,
                             item.review_state,
                             item.version,
                             item.created_by,
@@ -236,9 +247,10 @@ class PostgresStore:
                         """
                         INSERT INTO claims
                           (id, text, source_ids, evidence_ids, subject, predicate, object, confidence, status,
-                           created_at, review_state, version, created_by, updated_by, updated_at, supersedes_id,
+                           created_at, observed_at, valid_from, valid_to, conflicts_with,
+                           review_state, version, created_by, updated_by, updated_at, supersedes_id,
                            superseded_by_id, governance_notes)
-                        VALUES (%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        VALUES (%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (id) DO UPDATE SET
                           text=EXCLUDED.text,
                           source_ids=EXCLUDED.source_ids,
@@ -248,6 +260,10 @@ class PostgresStore:
                           object=EXCLUDED.object,
                           confidence=EXCLUDED.confidence,
                           status=EXCLUDED.status,
+                          observed_at=EXCLUDED.observed_at,
+                          valid_from=EXCLUDED.valid_from,
+                          valid_to=EXCLUDED.valid_to,
+                          conflicts_with=EXCLUDED.conflicts_with,
                           review_state=EXCLUDED.review_state,
                           version=EXCLUDED.version,
                           updated_by=EXCLUDED.updated_by,
@@ -267,6 +283,10 @@ class PostgresStore:
                             claim.confidence,
                             claim.status,
                             claim.created_at,
+                            claim.observed_at,
+                            claim.valid_from,
+                            claim.valid_to,
+                            _json(claim.conflicts_with),
                             claim.review_state,
                             claim.version,
                             claim.created_by,
@@ -394,7 +414,8 @@ class PostgresStore:
                 cur.execute(
                     """
                     SELECT id, text, source_ids, evidence_ids, subject, predicate, object, confidence, status,
-                           created_at, review_state, version, created_by, updated_by, updated_at, supersedes_id,
+                           created_at, observed_at, valid_from, valid_to, conflicts_with,
+                           review_state, version, created_by, updated_by, updated_at, supersedes_id,
                            superseded_by_id, governance_notes
                     FROM claims WHERE id = %s
                     """,
@@ -414,14 +435,45 @@ class PostgresStore:
             confidence=float(row[7]),
             status=row[8],
             created_at=row[9],
-            review_state=row[10],
-            version=row[11],
-            created_by=row[12],
-            updated_by=row[13],
-            updated_at=row[14],
-            supersedes_id=row[15],
-            superseded_by_id=row[16],
-            governance_notes=row[17],
+            observed_at=row[10],
+            valid_from=row[11],
+            valid_to=row[12],
+            conflicts_with=list(row[13] or []),
+            review_state=row[14],
+            version=row[15],
+            created_by=row[16],
+            updated_by=row[17],
+            updated_at=row[18],
+            supersedes_id=row[19],
+            superseded_by_id=row[20],
+            governance_notes=row[21],
+        )
+
+    def get_document(self, document_id: str) -> Document | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, title, source_path, source_type, content, author,
+                           created_at, ingested_at, hash, metadata
+                    FROM documents WHERE id = %s
+                    """,
+                    (document_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return Document(
+            id=row[0],
+            title=row[1],
+            source_path=row[2],
+            source_type=row[3],
+            content=row[4],
+            author=row[5],
+            created_at=row[6],
+            ingested_at=row[7],
+            hash=row[8],
+            metadata=dict(row[9] or {}),
         )
 
     def update_claim(self, claim: Claim, before: dict[str, Any] | None = None) -> str:
@@ -438,6 +490,10 @@ class PostgresStore:
                       object=%s,
                       confidence=%s,
                       status=%s,
+                      observed_at=%s,
+                      valid_from=%s,
+                      valid_to=%s,
+                      conflicts_with=%s::jsonb,
                       review_state=%s,
                       version=%s,
                       updated_by=%s,
@@ -456,6 +512,10 @@ class PostgresStore:
                         claim.object,
                         claim.confidence,
                         claim.status,
+                        claim.observed_at,
+                        claim.valid_from,
+                        claim.valid_to,
+                        _json(claim.conflicts_with),
                         claim.review_state,
                         claim.version,
                         claim.updated_by,
@@ -477,7 +537,8 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, source_id, quote, page_number, url, section, source_mode, confidence, review_state, version,
+                    SELECT id, source_id, quote, page_number, url, section, source_mode, confidence,
+                           source_content_hash, quote_start, quote_end, observed_at, extractor_version, review_state, version,
                            created_by, updated_by, updated_at, supersedes_id, superseded_by_id, governance_notes
                     FROM evidence WHERE id = ANY(%s)
                     """,
@@ -494,14 +555,19 @@ class PostgresStore:
                 section=row[5],
                 source_mode=row[6] or "unknown",
                 confidence=float(row[7]),
-                review_state=row[8],
-                version=row[9],
-                created_by=row[10],
-                updated_by=row[11],
-                updated_at=row[12],
-                supersedes_id=row[13],
-                superseded_by_id=row[14],
-                governance_notes=row[15],
+                source_content_hash=row[8],
+                quote_start=row[9],
+                quote_end=row[10],
+                observed_at=row[11],
+                extractor_version=row[12],
+                review_state=row[13],
+                version=row[14],
+                created_by=row[15],
+                updated_by=row[16],
+                updated_at=row[17],
+                supersedes_id=row[18],
+                superseded_by_id=row[19],
+                governance_notes=row[20],
             )
             for row in rows
         ]
@@ -1002,7 +1068,9 @@ class PostgresStore:
                     if evidence_ids:
                         cur.execute(
                             """
-                            SELECT id, source_id, quote, page_number, url, section, confidence
+                            SELECT id, source_id, quote, page_number, url, section, confidence,
+                                   source_content_hash, quote_start, quote_end, observed_at, extractor_version,
+                                   review_state, version
                             FROM evidence
                             WHERE id = ANY(%s)
                             ORDER BY confidence DESC
@@ -1019,6 +1087,13 @@ class PostgresStore:
                                 url=row[4],
                                 section=row[5],
                                 confidence=float(row[6]),
+                                source_content_hash=row[7],
+                                quote_start=row[8],
+                                quote_end=row[9],
+                                observed_at=row[10],
+                                extractor_version=row[11],
+                                review_state=row[12],
+                                version=row[13],
                             )
                             evidence_items.append(item)
                             hits.append(

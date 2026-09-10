@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from llm_kg.config import Settings
+from llm_kg.context import build_context_bundle
 from llm_kg.governance import apply_kee_plan as _apply_kee_plan
 from llm_kg.embeddings import build_embedding_client
 from llm_kg.governance import apply_update_plan as _apply_update_plan

@@ -17,6 +17,7 @@ from llm_kg.api import (
     verify_claim,
     verify_object,
 )
+from llm_kg.context import build_context_bundle
 from llm_kg.models import IngestResult, LintIssue, QueryResult
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "LintIssue",
     "QueryResult",
     "apply_update_plan",
+    "build_context_bundle",
     "apply_kee_plan",
     "create_proposal",
     "cross_validate_claims",

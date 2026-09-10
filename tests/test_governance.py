@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from llm_kg.governance import apply_update_plan, create_proposal, export_proposal, trace_object, verify_claim
-from llm_kg.models import Claim, Entity, Evidence, Relation
+from llm_kg.governance import apply_update_plan, create_proposal, export_proposal, trace_object, verify_claim, verify_object
+from llm_kg.models import Claim, Document, Entity, Evidence, Relation
 from llm_kg.storage import JsonlStore
 
 
@@ -76,6 +76,21 @@ def test_verify_claim_missing_evidence_reports_issue(tmp_path: Path) -> None:
 
     assert result.valid is False
     assert {issue.code for issue in result.issues} == {"claim_bad_evidence_ref"}
+
+
+def test_verify_evidence_requires_exact_immutable_source_binding(tmp_path: Path) -> None:
+    content = "A requires C."
+    store = JsonlStore(tmp_path)
+    store.upsert("documents.jsonl", [Document(id="doc", title="Source", source_path="s", source_type="txt", content=content, hash="hash")])
+    store.upsert("evidence.jsonl", [Evidence(id="ev", source_id="doc", quote=content, source_content_hash="hash", quote_start=0, quote_end=len(content), confidence=1, review_state="approved")])
+
+    assert verify_object("evidence", "ev", tmp_path).valid is True
+
+    store.upsert("evidence.jsonl", [Evidence(id="ev", source_id="doc", quote=content, source_content_hash="tampered", quote_start=0, quote_end=len(content), confidence=1, review_state="approved")])
+    result = verify_object("evidence", "ev", tmp_path)
+
+    assert result.valid is False
+    assert {issue.code for issue in result.issues} == {"evidence_hash_mismatch"}
 
 
 def test_trace_claim_returns_source_evidence_and_relation(tmp_path: Path) -> None:
