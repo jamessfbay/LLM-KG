@@ -94,34 +94,47 @@ class PostgresStore:
         entities: list[Entity],
         relations: list[Relation],
         embeddings: list[EmbeddingRecord],
+        source_documents: list[Document] | None = None,
     ) -> None:
         with self.connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO documents
-                      (id, title, source_path, source_type, content, author, created_at, ingested_at, hash, metadata)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-                    ON CONFLICT (id) DO UPDATE SET
-                      title=EXCLUDED.title,
-                      source_path=EXCLUDED.source_path,
-                      source_type=EXCLUDED.source_type,
-                      content=EXCLUDED.content,
-                      hash=EXCLUDED.hash
-                    """,
-                    (
-                        document.id,
-                        document.title,
-                        document.source_path,
-                        document.source_type,
-                        document.content,
-                        document.author,
-                        document.created_at,
-                        document.ingested_at,
-                        document.hash,
-                        _json(document.metadata),
-                    ),
-                )
+                # Evidence.source_id is a foreign key to documents.id. CLAW imports
+                # contain several immutable source documents in addition to the
+                # synthetic import summary, so persist all of them in this same
+                # transaction before inserting evidence.
+                documents = {item.id: item for item in [document, *(source_documents or [])]}
+                document_id_map: dict[str, str] = {}
+                for source_document in documents.values():
+                    cur.execute("SELECT id FROM documents WHERE hash=%s", (source_document.hash,))
+                    existing_document = cur.fetchone()
+                    if existing_document and existing_document[0] != source_document.id:
+                        document_id_map[source_document.id] = existing_document[0]
+                        continue
+                    cur.execute(
+                        """
+                        INSERT INTO documents
+                          (id, title, source_path, source_type, content, author, created_at, ingested_at, hash, metadata)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                        ON CONFLICT (id) DO UPDATE SET
+                          title=EXCLUDED.title,
+                          source_path=EXCLUDED.source_path,
+                          source_type=EXCLUDED.source_type,
+                          content=EXCLUDED.content,
+                          hash=EXCLUDED.hash
+                        """,
+                        (
+                            source_document.id,
+                            source_document.title,
+                            source_document.source_path,
+                            source_document.source_type,
+                            source_document.content,
+                            source_document.author,
+                            source_document.created_at,
+                            source_document.ingested_at,
+                            source_document.hash,
+                            _json(source_document.metadata),
+                        ),
+                    )
                 for text_unit in text_units:
                     cur.execute(
                         """
@@ -135,13 +148,13 @@ class PostgresStore:
                         """,
                         (
                             text_unit.id,
-                            text_unit.document_id,
+                            document_id_map.get(text_unit.document_id, text_unit.document_id),
                             text_unit.chunk_index,
                             text_unit.text,
                             text_unit.start_char,
                             text_unit.end_char,
                             text_unit.token_count,
-                            _json(text_unit.source_ids),
+                            _json([document_id_map.get(item, item) for item in text_unit.source_ids]),
                         ),
                     )
                 for page in wiki_pages:
@@ -174,7 +187,7 @@ class PostgresStore:
                             page.page_type,
                             page.path,
                             page.content_md,
-                            _json(page.source_ids),
+                            _json([document_id_map.get(item, item) for item in page.source_ids]),
                             _json(page.wikilinks),
                             _json(page.tags),
                             page.updated_at,
@@ -219,7 +232,7 @@ class PostgresStore:
                         """,
                         (
                             item.id,
-                            item.source_id,
+                            document_id_map.get(item.source_id, item.source_id),
                             item.quote,
                             item.page_number,
                             item.url,
@@ -275,7 +288,7 @@ class PostgresStore:
                         (
                             claim.id,
                             claim.text,
-                            _json(claim.source_ids),
+                            _json([document_id_map.get(item, item) for item in claim.source_ids]),
                             _json(claim.evidence_ids),
                             claim.subject,
                             claim.predicate,
@@ -326,7 +339,7 @@ class PostgresStore:
                             entity.entity_type,
                             _json(entity.aliases),
                             entity.description,
-                            _json(entity.source_ids),
+                            _json([document_id_map.get(item, item) for item in entity.source_ids]),
                             entity.review_state,
                             entity.version,
                             entity.created_by,

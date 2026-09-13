@@ -180,6 +180,7 @@ def ingest_import_payload(
             entities=[],
             relations=[],
             embeddings=[],
+            source_documents=documents,
         )
 
     return IngestResult(
