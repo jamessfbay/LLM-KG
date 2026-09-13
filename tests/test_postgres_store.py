@@ -23,6 +23,14 @@ def test_postgres_store_migrates_upserts_and_searches() -> None:
         content="SB 330 affects Housing Project Alpha.",
         hash="hash_test_pg",
     )
+    source_doc = Document(
+        id="doc_test_pg_claw_source",
+        title="CLAW Evidence Source",
+        source_path="https://example.test/source",
+        source_type="txt",
+        content="The source confirms that SB 330 affects Housing Project Alpha.",
+        hash="hash_test_pg_claw_source",
+    )
     text_units = chunk_document(doc)
     page = WikiPage(
         id="wiki_test_pg",
@@ -33,12 +41,12 @@ def test_postgres_store_migrates_upserts_and_searches() -> None:
         source_ids=[doc.id],
         wikilinks=["Housing Project Alpha"],
     )
-    evidence = [Evidence(id="ev_test_pg", source_id=doc.id, quote=doc.content, confidence=0.9)]
+    evidence = [Evidence(id="ev_test_pg", source_id=source_doc.id, quote=source_doc.content, confidence=0.9)]
     claims = [
         Claim(
             id="claim_test_pg",
             text=doc.content,
-            source_ids=[doc.id],
+            source_ids=[source_doc.id],
             evidence_ids=["ev_test_pg"],
             subject="SB 330",
             predicate="affects",
@@ -62,9 +70,15 @@ def test_postgres_store_migrates_upserts_and_searches() -> None:
         entities=entities,
         relations=relations,
         embeddings=_build_embeddings(text_units, [page], claims, evidence, entities, embedder),
+        source_documents=[source_doc],
     )
 
     hits = store.search_basic("Housing Project Alpha", embedder.embed_text("Housing Project Alpha"), top_k=3)
+    with store.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT source_id FROM evidence WHERE id=%s", ("ev_test_pg",))
+            persisted_source_id = cur.fetchone()[0]
 
     assert hits
+    assert persisted_source_id == source_doc.id
     assert store.status()["migrated"] is True

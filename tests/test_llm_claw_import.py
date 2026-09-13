@@ -105,3 +105,21 @@ def test_empty_claw_import_is_explicitly_insufficient(tmp_path: Path) -> None:
     assert result.request_id == "task_empty"
     assert result.claims == []
     assert result.evidence == []
+
+
+def test_postgres_import_persists_claw_sources_before_bound_evidence(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "import.json"
+    source.write_text(json.dumps(_payload()), encoding="utf-8")
+    calls = []
+
+    class FakePostgres:
+        def upsert_ingest(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr("llm_kg.pipeline.ingest.build_postgres_store", lambda settings: FakePostgres())
+
+    ingest_source(source, workspace=tmp_path)
+
+    assert len(calls) == 1
+    assert [item.id for item in calls[0]["source_documents"]] == ["doc_demo"]
+    assert calls[0]["evidence"][0].source_id == "doc_demo"
