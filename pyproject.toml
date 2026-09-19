@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-kg"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLM Wiki to LLM Knowledge Graph MVP"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 llm-kg = "llm_kg.cli:main"
+llm-kg-rpc = "llm_kg.rpc:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

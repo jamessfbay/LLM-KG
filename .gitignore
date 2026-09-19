@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+build/
 tmp/
 graph_store/
 wiki/

@@ -323,3 +323,15 @@ query_trace = trace_query(result.trace_id, workspace=Path(".")) if result.trace_
 validation = cross_validate_claims(workspace=Path("."), providers=["gemini", "xai"], limit=20)
 issues = lint_workspace(Path("."))
 ```
+
+## Persistent NOX Runtime v3.5 RPC
+
+```bash
+NOX_ENGINE_RPC_TOKEN='<random-secret-at-least-32-characters>' \
+  llm-kg-rpc --host 127.0.0.1 --port 7402 --workspace /srv/nox/engines/kg
+```
+
+This authenticated loopback service is the canonical NOX transport. It accepts
+only `context_provider/context`, returns governed source-linked facts, has no
+action authority, and keeps durable idempotency receipts. The older CLI event
+protocol remains available only as a migration fallback.
